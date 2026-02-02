@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<!-- Moved bg-gray-900 to html tag -->
+<html lang="en" class="h-full bg-gray-900">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Liar's Table</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Inter font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            /* Removed overflow: hidden */
+        }
+        .player-hand {
+            display: flex;
+            justify-content: center;
+            align-items: flex-end; /* Puts cards at the bottom of the div */
+            gap: 3px;
+            margin-top: 2px; /* Adjusted margin */
+            height: 140px;
+            /* ADDING THIS TO HELP DEBUG */
+            border: 2px dashed red;
+            width: 100%;
+            padding: 4px;
+        }
+        .player-hand .card {
+            transition: all .2s ease-in-out;
+        }
+        .player-hand .card:hover {
+            transform: translateY(-10px) scale(1.05);
+            z-index: 10;
+        }
+        .player-hand .card.selected {
+            transform: translateY(-20px) scale(1.1);
+            box-shadow: 0 0 15px 5px #22d3ee; /* Was theme('colors.cyan.400') */
+            border-color: #22d3ee; /* Was theme('colors.cyan.400') */
+            z-index: 20;
+        }
+        .card {
+            width: 80px;
+            height: 120px;
+            border: 2px solid #4b5563; /* Was theme('colors.gray.600') */
+            background-color: #1f2937; /* Was theme('colors.gray.800') */
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            font-weight: bold;
+            color: white;
+            cursor: pointer;
+            user-select: none;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.4);
+        }
+        .card-back {
+            background-color: #1e40af; /* Was theme('colors.blue.800') */
+            background-image: linear-gradient(135deg, #1d4ed8 25%, transparent 25%), 
+                              linear-gradient(225deg, #1d4ed8 25%, transparent 25%), 
+                              linear-gradient(45deg, #1d4ed8 25%, transparent 25%), 
+                              linear-gradient(315deg, #1d4ed8 25%, #1e40af 25%); /* Was theme('colors.blue.700') & theme('colors.blue.800') */
+            background-position: 10px 0, 10px 0, 0 0, 0 0;
+            background-size: 20px 20px;
+            background-repeat: repeat;
+        }
+        .card-value {
+            line-height: 1;
+        }
+        .player-zone {
+            transition: all 0.3s ease;
+            border-width: 4px;
+        }
+        .player-zone.active {
+            border-color: #facc15; /* Was theme('colors.yellow.400') */
+            box-shadow: 0 0 20px #facc15; /* Was theme('colors.yellow.400') */
+        }
+        .lives {
+            display: flex;
+            gap: 4px;
+        }
+        .life {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background-color: #ef4444; /* Was theme('colors.red.500') */
+            box-shadow: 0 0 5px #ef4444; /* Was theme('colors.red.500') */
+        }
+        .life.lost {
+            background-color: #374151; /* Was theme('colors.gray.700') */
+            box-shadow: none;
+        }
+        .message-box {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 100;
+        }
+        .log-panel {
+            height: 100px; /* Reduced log panel height */
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<!-- Removed flex, items-center, justify-center, p-4, and overflow:hidden from body -->
+<body class="h-full text-white">
+
+    <!-- 
+      - Grid now takes up h-full (h-screen)
+      - Added p-4 for padding (moved from body)
+      - Added max-w-7xl and mx-auto to center horizontally 
+    -->
+    <div class="grid grid-cols-3 grid-rows-[auto_1fr_auto] w-full h-full max-w-7xl mx-auto gap-4 p-4">
+        
+        <!-- Player 2 (Top) -->
+        <div class="col-start-2 flex flex-col items-center justify-center pt-4"> <!-- Added pt-4 -->
+            <div id="player-zone-2" class="player-zone border-4 border-transparent rounded-lg p-4 bg-gray-800 shadow-lg w-64">
+                <h3 class="text-xl font-bold text-center">Player 2</h3>
+                <div id="lives-2" class="lives justify-center my-2"></div>
+                <div class="flex justify-center items-center gap-2">
+                    <div class="card-back w-12 h-20"></div>
+                    <span class="text-3xl font-bold">x <span id="card-count-2">0</span></span>
+                </div>
+                <p id="status-2" class="text-center text-yellow-400 h-6 mt-2"></p>
+            </div>
+        </div>
+
+        <!-- Player 1 (Left) -->
+        <div class="row-start-2 flex flex-col items-center justify-center">
+            <div id="player-zone-1" class="player-zone border-4 border-transparent rounded-lg p-4 bg-gray-800 shadow-lg w-64">
+                <h3 class="text-xl font-bold text-center">Player 1</h3>
+                <div id="lives-1" class="lives justify-center my-2"></div>
+                <div class="flex justify-center items-center gap-2">
+                    <div class="card-back w-12 h-20"></div>
+                    <span class="text-3xl font-bold">x <span id="card-count-1">0</span></span>
+                </div>
+                <p id="status-1" class="text-center text-yellow-400 h-6 mt-2"></p>
+            </div>
+        </div>
+
+        <!-- Center Pile (Middle) -->
+        <div class="row-start-2 col-start-2 flex flex-col items-center justify-center gap-4">
+            <div class="text-center">
+                <p class="text-lg text-gray-400">Table Card</p>
+                <div id="table-card-display" class="card w-24 h-36 text-5xl bg-gray-700">?</div>
+            </div>
+            <div class="text-center">
+                <p class="text-lg text-gray-400">Cards in Pile</p>
+                <div class="w-24 h-36 rounded-lg bg-gray-700 flex items-center justify-center text-5xl font-bold" id="center-pile-count">0</div>
+            </div>
+        </div>
+
+        <!-- Player 3 (Right) -->
+        <div class="row-start-2 col-start-3 flex flex-col items-center justify-center">
+            <div id="player-zone-3" class="player-zone border-4 border-transparent rounded-lg p-4 bg-gray-800 shadow-lg w-64">
+                <h3 class="text-xl font-bold text-center">Player 3</h3>
+                <div id="lives-3" class="lives justify-center my-2"></div>
+                <div class="flex justify-center items-center gap-2">
+                    <div class="card-back w-12 h-20"></div>
+                    <span class="text-3xl font-bold">x <span id="card-count-3">0</span></span>
+                </div>
+                <p id="status-3" class="text-center text-yellow-400 h-6 mt-2"></p>
+            </div>
+        </div>
+
+        <!-- Player 0 (Human) (Bottom) -->
+        <div class="col-span-3 row-start-3 flex flex-col items-center pb-4"> <!-- Added pb-4 -->
+            <div id="player-zone-0" class="player-zone border-4 border-transparent rounded-lg p-4 bg-gray-800 shadow-lg w-full max-w-3xl">
+                <div class="flex justify-between items-center">
+                    <div class="w-1/3">
+                        <h3 class="text-2xl font-bold">Isaiah</h3>
+                        <div id="lives-0" class="lives my-2"></div>
+                        <p id="status-0" class="text-yellow-400 h-6"></p>
+                    </div>
+                    <div class="w-1/3 flex justify-center gap-4">
+                        <button id="play-button" class="px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded-lg text-xl font-bold shadow-lg transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed">
+                            Play Cards
+                        </button>
+                        <button id="liar-button" class="px-6 py-3 bg-red-600 hover:bg-red-700 rounded-lg text-xl font-bold shadow-lg transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed">
+                            Call Liar!
+                        </button>
+                    </div>
+                    <div class="w-1/3 flex justify-end">
+                        <div class="bg-gray-700 p-3 rounded-lg shadow-inner w-64">
+                            <h4 class="text-sm font-bold border-b border-gray-600 mb-2">Game Log</h4>
+                            <!-- NOTE: Log panel height was reduced in CSS -->
+                            <div id="game-log" class="log-panel text-sm text-gray-300"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Player Hand -->
+                <p class="text-center text-gray-400 text-sm mt-2">Click on your cards below to select them.</p>
+                <div id="player-hand" class="player-hand flex justify-center gap-3 h-[140px]">
+                    <!-- Player cards will be inserted here -->
+                </div>
+            </div>
+        </div>
+
+    </div>
+    
+    <!-- Message Box -->
+    <div id="message-box" class="message-box hidden bg-gray-700 border-4 border-cyan-700 rounded-lg p-8 shadow-2xl text-center z-50">
+        <h2 id="message-title" class="text-3xl font-bold mb-4"></h2>
+        <p id="message-text" class="text-lg mb-6"></p>
+        <div id="message-revealed-cards" class="flex justify-center gap-3 mb-6"></div>
+        <button id="message-ok-button" class="px-6 py-3 bg-cyan-700 hover:bg-cyan-800 rounded-lg text-xl font-bold shadow-lg transition duration-200">
+            Next Round
+        </button>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+
+            // --- DOM Elements ---
+            const playerZones = [
+                document.getElementById('player-zone-0'),
+                document.getElementById('player-zone-1'),
+                document.getElementById('player-zone-2'),
+                document.getElementById('player-zone-3')
+            ];
+            const playerLives = [
+                document.getElementById('lives-0'),
+                document.getElementById('lives-1'),
+                document.getElementById('lives-2'),
+                document.getElementById('lives-3')
+            ];
+            const playerCardCounts = [
+                null, // Player 0 has a visible hand
+                document.getElementById('card-count-1'),
+                document.getElementById('card-count-2'),
+                document.getElementById('card-count-3')
+            ];
+            const playerStatuses = [
+                document.getElementById('status-0'),
+                document.getElementById('status-1'),
+                document.getElementById('status-2'),
+                document.getElementById('status-3')
+            ];
+            const playerHandElement = document.getElementById('player-hand');
+            const playButton = document.getElementById('play-button');
+            const liarButton = document.getElementById('liar-button');
+            const tableCardDisplay = document.getElementById('table-card-display');
+            const centerPileCount = document.getElementById('center-pile-count');
+            const gameLog = document.getElementById('game-log');
+            
+            // Message Box Elements
+            const messageBox = document.getElementById('message-box');
+            const messageTitle = document.getElementById('message-title');
+            const messageText = document.getElementById('message-text');
+            const messageRevealedCards = document.getElementById('message-revealed-cards');
+            const messageOkButton = document.getElementById('message-ok-button');
+
+            // --- Game Constants ---
+            const CARD_TYPES = ['K', 'Q', 'J'];
+            const CARDS_PER_TYPE = 6;
+            const STARTING_LIVES = 5;
+            const NUM_PLAYERS = 4;
+            const STARTING_HAND_SIZE = 5;
+
+            // --- Game State ---
+            let deck = [];
+            let players = [];
+            let centerPile = [];
+            let tableCard = '';
+            let currentPlayerIndex = 0;
+            let lastPlay = {
+                playerId: -1,
+                cards: []
+            };
+            let gameInProgress = true;
+
+            // --- Game Logic ---
+
+            /**
+             * Initializes the game
+             */
+            function initGame() {
+                logMessage("Starting a new game of Liar's Table!");
+                players = [];
+                for (let i = 0; i < NUM_PLAYERS; i++) {
+                    players.push({
+                        id: i,
+                        isHuman: i === 0,
+                        hand: [],
+                        lives: STARTING_LIVES,
+                        isOut: false
+                    });
+                }
+                currentPlayerIndex = Math.floor(Math.random() * NUM_PLAYERS); // Random start
+                startNewRound();
+            }
+
+            /**
+             * Starts a new round
+             */
+            function startNewRound() {
+                // Clear center pile and last play
+                centerPile = [];
+                lastPlay = { playerId: -1, cards: [] };
+
+                // Determine new table card
+                tableCard = CARD_TYPES[Math.floor(Math.random() * CARD_TYPES.length)];
+                tableCardDisplay.textContent = tableCard;
+                logMessage(`--- New Round ---`);
+                logMessage(`The Table Card is: ${tableCard}`);
+
+                // Create, shuffle, and deal deck
+                createDeck();
+                shuffleDeck();
+                dealCards();
+                
+                // Check if any player is out
+                players.forEach(p => {
+                    if (p.lives <= 0 && !p.isOut) {
+                        p.isOut = true;
+                        logMessage(`Player ${p.id === 0 ? 'You' : p.id} is out of the game!`);
+                    }
+                });
+
+                // Check for game over
+                const activePlayers = players.filter(p => !p.isOut);
+                if (activePlayers.length === 1) {
+                    gameInProgress = false;
+                    showEndGameMessage(activePlayers[0]);
+                    return;
+                }
+
+                // Reset player hands if they are out
+                players.forEach(p => {
+                    if (p.isOut) p.hand = [];
+                });
+
+                updateUI();
+                
+                // Skip any players who are out
+                while(players[currentPlayerIndex].isOut) {
+                    currentPlayerIndex = (currentPlayerIndex + 1) % NUM_PLAYERS;
+                }
+                
+                logMessage(`Player ${currentPlayerIndex === 0 ? 'You' : currentPlayerIndex} will start.`);
+                setTimeout(nextTurn, 500);
+            }
+
+            /**
+             * Creates the deck of cards
+             */
+            function createDeck() {
+                deck = [];
+                CARD_TYPES.forEach(type => {
+                    for (let i = 0; i < CARDS_PER_TYPE; i++) {
+                        deck.push(type);
+                    }
+                });
+            }
+
+            /**
+             * Shuffles the deck
+             */
+            function shuffleDeck() {
+                for (let i = deck.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [deck[i], deck[j]] = [deck[j], deck[i]];
+                }
+            }
+
+            /**
+             * Deals cards to all players
+             */
+            function dealCards() {
+                for (let i = 0; i < NUM_PLAYERS; i++) {
+                    if (players[i].isOut) {
+                        players[i].hand = [];
+                        continue;
+                    }
+                    players[i].hand = [];
+                    for (let j = 0; j < STARTING_HAND_SIZE; j++) {
+                        if (deck.length > 0) {
+                            players[i].hand.push(deck.pop());
+                        }
+                    }
+                    if (players[i].isHuman) {
+                        players[i].hand.sort();
+                    }
+                }
+            }
+
+            /**
+             * Handles the logic for the next turn
+             */
+            function nextTurn() {
+                if (!gameInProgress) return;
+
+                updateUI();
+                const currentPlayer = players[currentPlayerIndex];
+
+                if (currentPlayer.isOut) {
+                    logMessage(`Skipping Player ${currentPlayerIndex} (Out).`);
+                    advanceTurn();
+                    return;
+                }
+                
+                if (currentPlayer.hand.length === 0) {
+                     logMessage(`Player ${currentPlayerIndex === 0 ? 'You' : currentPlayerIndex} has no cards, skipping.`);
+                     advanceTurn();
+                     return;
+                }
+
+                // Check for mandatory "Liar" call
+                const activePlayersWithCards = players.filter(p => !p.isOut && p.hand.length > 0);
+                if (activePlayersWithCards.length === 1 && lastPlay.playerId !== -1) {
+                    logMessage(`Only Player ${activePlayersWithCards[0].id === 0 ? 'You' : activePlayersWithCards[0].id} has cards. They must call "LIAR!".`);
+                    if (activePlayersWithCards[0].isHuman) {
+                        // Force human to call
+                        liarButton.disabled = false;
+                        playButton.disabled = true;
+                        setPlayerStatus(0, "You must call LIAR!");
+                    } else {
+                        // Bot automatically calls
+                        setTimeout(() => handleLiarCall(currentPlayerIndex), 1500);
+                    }
+                    return;
+                }
+
+
+                setPlayerStatus(currentPlayerIndex, "Thinking...");
+
+                if (currentPlayer.isHuman) {
+                    // Enable human player controls
+                    playButton.disabled = false;
+                    liarButton.disabled = lastPlay.playerId === -1 || lastPlay.playerId === 0;
+                } else {
+                    // Bot logic
+                    playButton.disabled = true;
+                    liarButton.disabled = true;
+                    setTimeout(() => botTurn(currentPlayer), 1500 + Math.random() * 1500);
+                }
+            }
+
+            /**
+             * Advances the turn to the next active player
+             */
+            function advanceTurn() {
+                currentPlayerIndex = (currentPlayerIndex + 1) % NUM_PLAYERS;
+                
+                // Skip players who are out
+                while(players[currentPlayerIndex].isOut) {
+                    currentPlayerIndex = (currentPlayerIndex + 1) % NUM_PLAYERS;
+                }
+                
+                nextTurn();
+            }
+
+            /**
+             * Logic for a bot's turn
+             */
+            function botTurn(bot) {
+                // Decision: Call Liar or Play?
+                // Bot can't call liar on first turn or on its own play
+                const canCallLiar = lastPlay.playerId !== -1 && lastPlay.playerId !== bot.id;
+                let callLiar = false;
+
+                if (canCallLiar) {
+                    // Simple AI: More likely to call if more cards were played
+                    const randomFactor = Math.random();
+                    let callProbability = 0.1; // Base probability
+                    if (lastPlay.cards.length === 2) callProbability = 0.3;
+                    if (lastPlay.cards.length === 3) callProbability = 0.5;
+
+                    // If bot has 0 or 1 of the table card, it's more suspicious
+                    const tableCardsInHand = bot.hand.filter(c => c === tableCard).length;
+                    if (tableCardsInHand <= 1) callProbability += 0.2;
+
+                    if (randomFactor < callProbability) {
+                        callLiar = true;
+                    }
+                }
+
+                if (callLiar) {
+                    handleLiarCall(bot.id);
+                } else {
+                    // Decision: Play cards
+                    let cardsToPlay = [];
+                    const trueCards = bot.hand.filter(c => c === tableCard);
+                    const lieCards = bot.hand.filter(c => c !== tableCard);
+
+                    // Strategy:
+                    // 1. If has true cards, play 1 or 2
+                    if (trueCards.length > 0) {
+                        const numToPlay = Math.random() < 0.7 ? 1 : Math.min(trueCards.length, 2); // Prefer playing 1
+                        for (let i = 0; i < numToPlay; i++) {
+                            cardsToPlay.push(trueCards[i]);
+                        }
+                    }
+                    // 2. If no true cards, must lie. Play 1 lie card.
+                    else if (lieCards.length > 0) {
+                        cardsToPlay.push(lieCards[0]); // Play one lie card
+                    }
+                    // 3. If hand is empty (shouldn't happen here, but safe-guard)
+                    else {
+                        advanceTurn();
+                        return;
+                    }
+
+                    handlePlayCards(bot.id, cardsToPlay);
+                }
+            }
+            
+            /**
+             * Handles the "Play" button click for the human
+             */
+            function onPlayClick() {
+                const selectedCards = getSelectedCards();
+                if (selectedCards.length === 0) {
+                    setPlayerStatus(0, "You must select 1, 2, or 3 cards to play.");
+                    return;
+                }
+                if (selectedCards.length > 3) {
+                     setPlayerStatus(0, "You can only play a maximum of 3 cards.");
+                    return;
+                }
+
+                handlePlayCards(0, selectedCards);
+            }
+
+            /**
+             * Gets the values of the selected cards from the UI
+             */
+            function getSelectedCards() {
+                const selectedElements = playerHandElement.querySelectorAll('.card.selected');
+                return Array.from(selectedElements).map(cardEl => cardEl.dataset.value);
+            }
+
+            /**
+             * Handles the "Call Liar" button click for the human
+             */
+            function onLiarClick() {
+                handleLiarCall(0);
+            }
+
+            /**
+             * Processes a "Play Cards" action
+             */
+            function handlePlayCards(playerId, cards) {
+                const player = players[playerId];
+                
+                // Remove cards from player's hand
+                cards.forEach(cardValue => {
+                    const index = player.hand.indexOf(cardValue);
+                    if (index > -1) {
+                        player.hand.splice(index, 1);
+                    }
+                });
+
+                // Add cards to center pile
+                centerPile.push(...cards);
+                
+                // Update last play
+                lastPlay = {
+                    playerId: playerId,
+                    cards: cards
+                };
+                
+                const playerName = playerId === 0 ? "You" : `Player ${playerId}`;
+                logMessage(`${playerName} played ${cards.length} card(s).`);
+
+                // Explicitly update the UI *after* modifying the hand
+                if (player.isHuman) {
+                    updateUI();
+                }
+
+                advanceTurn();
+            }
+            
+            /**
+             * Processes a "Call Liar" action
+             */
+            function handleLiarCall(accuserPlayerId) {
+                if (lastPlay.playerId === -1) return; // Should not happen
+
+                gameInProgress = false; // Pause game for message box
+                playButton.disabled = true;
+                liarButton.disabled = true;
+
+                const accuserName = accuserPlayerId === 0 ? "Isaiah" : `Player ${accuserPlayerId}`;
+                const accusedName = lastPlay.playerId === 0 ? "Isaiah" : `Player ${lastPlay.playerId}`;
+                
+                logMessage(`${accuserName} calls "LIAR!" on ${accusedName}.`);
+                logMessage(`Revealing ${lastPlay.cards.length} card(s)...`);
+
+                // Check the lie
+                const playedCards = lastPlay.cards;
+                const wasLying = playedCards.some(card => card !== tableCard);
+
+                let title = "";
+                let text = "";
+                let loserId = -1;
+
+                if (wasLying) {
+                    title = "Caught!";
+                    text = `${accusedName} is LYING! ${accuserName} was correct. ${accusedName} loses a life.`;
+                    loserId = lastPlay.playerId;
+                    logMessage(`${accusedName} is LYING!`);
+                } else {
+                    title = "Wrong!";
+                    text = `${accusedName} is telling the TRUTH! ${accuserName} was wrong. ${accuserName} loses a life.`;
+                    loserId = accuserPlayerId;
+                    logMessage(`${accusedName} is telling the TRUTH!`);
+                }
+                
+                // Apply penalty
+                if (loserId !== -1) {
+                    players[loserId].lives--;
+                    logMessage(`${loserId === 0 ? "Isaiah" : `Player ${loserId}`} lose(s) a life.`);
+                    // Set next round starter
+                    currentPlayerIndex = loserId; 
+                }
+                
+                // Show message box
+                showMessage(title, text, playedCards);
+            }
+            
+            /**
+             * Shows the round result message box
+             */
+            function showMessage(title, text, revealedCards) {
+                messageTitle.textContent = title;
+                messageText.textContent = text;
+                
+                // Display revealed cards
+                messageRevealedCards.innerHTML = '';
+                revealedCards.forEach(cardValue => {
+                    const cardEl = createCardElement(cardValue, false);
+                    if (cardValue !== tableCard) {
+                        cardEl.classList.add('border-red-500', 'border-4');
+                    } else {
+                        cardEl.classList.add('border-green-500', 'border-4');
+                    }
+                    messageRevealedCards.appendChild(cardEl);
+                });
+
+                messageOkButton.textContent = "Next Round";
+                messageOkButton.onclick = () => {
+                    messageBox.classList.add('hidden');
+                    gameInProgress = true;
+                    startNewRound();
+                };
+                messageBox.classList.remove('hidden');
+            }
+            
+            /**
+             * Shows the end game message
+             */
+            function showEndGameMessage(winner) {
+                const winnerName = winner.isHuman ? "You" : `Player ${winner.id}`;
+                messageTitle.textContent = "Game Over!";
+                messageText.textContent = `${winnerName} won the game!`;
+                messageRevealedCards.innerHTML = '';
+                
+                messageOkButton.textContent = "Play Again";
+                messageOkButton.onclick = () => {
+                    messageBox.classList.add('hidden');
+                    gameInProgress = true;
+                    initGame();
+                };
+                messageBox.classList.remove('hidden');
+            }
+
+            /**
+             * Creates a card DOM element
+             */
+            function createCardElement(value, isBack) {
+                const card = document.createElement('div');
+                card.className = 'card';
+                if (isBack) {
+                    card.classList.add('card-back');
+                } else {
+                    card.innerHTML = `<span class="card-value">${value}</span>`;
+                    if (value === 'K') card.classList.add('text-red-400');
+                    if (value === 'Q') card.classList.add('text-blue-400');
+                    if (value === 'J') card.classList.add('text-green-400');
+                }
+                card.dataset.value = value;
+                return card;
+            }
+
+            /**
+             * Toggles card selection in the human player's hand
+             */
+            function onCardClick(e) {
+                let card = e.target;
+                if (!card.classList.contains('card')) {
+                    card = card.closest('.card');
+                }
+                
+                if (card && card.parentElement.id === 'player-hand') { // Check that the card is in the player's hand
+                    const selectedCount = playerHandElement.querySelectorAll('.card.selected').length;
+                    
+                    if (card.classList.contains('selected')) {
+                        card.classList.remove('selected');
+                    } else if (selectedCount < 3) {
+                        card.classList.add('selected');
+                    }
+                }
+            }
+            
+            /**
+             * Updates all UI elements based on game state
+             */
+            function updateUI() {
+                // Update player zones
+                for (let i = 0; i < NUM_PLAYERS; i++) {
+                    const player = players[i];
+                    
+                    // Highlight active player
+                    if (i === currentPlayerIndex && gameInProgress && !player.isOut) {
+                        playerZones[i].classList.add('active');
+                    } else {
+                        playerZones[i].classList.remove('active');
+                    }
+
+                    // Update lives
+                    playerLives[i].innerHTML = '';
+                    for (let j = 0; j < STARTING_LIVES; j++) {
+                        const lifeEl = document.createElement('div');
+                        lifeEl.className = 'life';
+                        if (j >= player.lives) {
+                            lifeEl.classList.add('lost');
+                        }
+                        playerLives[i].appendChild(lifeEl);
+                    }
+                    
+                    // Update card counts (Bots)
+                    if (!player.isHuman) {
+                        playerCardCounts[i].textContent = player.hand.length;
+                    }
+                    
+                    if (player.isOut) {
+                        setPlayerStatus(i, "OUT");
+                        playerZones[i].classList.add('opacity-40');
+                    }
+                }
+                
+                // Update human player's hand
+                playerHandElement.innerHTML = '';
+                players[0].hand.forEach(cardValue => {
+                    const cardEl = createCardElement(cardValue, false);
+                    playerHandElement.appendChild(cardEl);
+                });
+
+                // Update center pile count
+                centerPileCount.textContent = centerPile.length;
+            }
+            
+            /**
+             * Sets the status message for a player
+             */
+            function setPlayerStatus(playerId, message) {
+                // Clear all statuses first
+                playerStatuses.forEach(status => status.textContent = '');
+                // Set the new status
+                if (playerStatuses[playerId]) {
+                    playerStatuses[playerId].textContent = message;
+                }
+            }
+            
+            /**
+             * Adds a message to the game log
+             */
+            function logMessage(message) {
+                const p = document.createElement('p');
+                p.textContent = message;
+                gameLog.appendChild(p);
+                // Auto-scroll to bottom
+                gameLog.scrollTop = gameLog.scrollHeight;
+            }
+
+            // --- Event Listeners ---
+            playButton.addEventListener('click', onPlayClick);
+            liarButton.addEventListener('click', onLiarClick);
+            playerHandElement.addEventListener('click', onCardClick);
+
+            // --- Start Game ---
+            initGame();
+        });
+    </script>
+</body>
+</html>
+

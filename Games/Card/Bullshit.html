@@ -1,0 +1,978 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bullshit - Canvas Card Game</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #1a1a1a;
+            color: white;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+        h1 {
+            font-weight: 700;
+            color: #f0f0f0;
+        }
+        canvas {
+            /* background-color: #064e3b; */ /* Removed: Canvas will draw its own bg */
+            border-radius: 10px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <h1>Bullshit (Canvas Edition)</h1>
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        // --- Setup: Canvas and Context ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // High-DPI screen scaling
+        const dpr = window.devicePixelRatio || 1;
+        const baseWidth = 1000;
+        const baseHeight = 700;
+        canvas.width = baseWidth * dpr;
+        canvas.height = baseHeight * dpr;
+        canvas.style.width = `${baseWidth}px`;
+        canvas.style.height = `${baseHeight}px`;
+        ctx.scale(dpr, dpr);
+
+        // --- Game Constants ---
+        const SUITS = ['♥', '♦', '♣', '♠'];
+        const VALUES = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+        const CARD_WIDTH = 80;
+        const CARD_HEIGHT = 110;
+        const CARD_OVERLAP = 40; // Overlap for fanned cards
+        const HOVER_ELEVATION = 15; // How much the card elevates on hover
+        const HOVER_FAN_OFFSET = 20; // How much to fan cards out on hover
+        
+        // --- Game State Variables ---
+        let deck = [];
+        let allHands = []; // allHands[0] is player, allHands[1+] are AIs
+        let discardPile = [];
+        let lastPlay = []; // Stores { card, playerLied, claimedRank, playerIndex }
+
+        let currentRankIndex = 0; // Starts with 'A'
+        let currentPlayerIndex = 0; // 0 is player
+        let message = "Starting game... You start with Aces.";
+        let lastMessage = ""; // To show AI's play
+        let gameState = 'START_MENU'; // 'START_MENU', 'SETTINGS_MENU', 'PLAYING', 'GAME_OVER'
+        let showQuitConfirmation = false; // For the quit modal
+
+        // --- Game Settings Variables ---
+        let selectedAINum = 1; // Default
+        let numDecks = 1;
+        let tableColor = '#064e3b';
+        let cardBackColor = '#b91c1c';
+        const tableColors = { 'Green': '#064e3b', 'Blue': '#0f4a7c', 'Red': '#7c0f0f' };
+        const cardBackColors = { 'Red': '#b91c1c', 'Blue': '#2563eb', 'Black': '#1f2937' };
+        let tablePattern = null; // Renamed from feltPattern
+        
+        // --- UPDATED: Texture and Pattern Settings ---
+        const tableTextures = { 'Felt': 'felt', 'Solid': 'solid', 'Wood': 'wood' }; // Added Wood
+        const cardBackPatterns = { 'Stripes': 'stripes', 'Dots': 'dots', 'Hatch': 'crosshatch', 'Circles': 'circles' }; // Added Crosshatch, Circles
+        let selectedTableTexture = 'felt'; // Default
+        let selectedCardBackPattern = 'stripes'; // Default
+        // --- End UPDATED Settings ---
+
+        // --- UI & Interaction ---
+        let clickableAreas = {};
+        let showResolveMessage = null; // To temporarily show BS results
+        let currentHoverCard = null; // Track which card is currently hovered
+        let hoveredButtonKey = null; // Track which UI button is hovered
+        
+
+        // --- Card Class ---
+        class Card {
+            constructor(suit, value) {
+                this.suit = suit;
+                this.value = value;
+                this.rank = VALUES.indexOf(value);
+                this.color = (suit === '♥' || suit === '♦') ? '#d91e18' : '#222';
+                this.selected = false;
+                this.isHovered = false; // New property for hover state
+                
+                this.x = 0; // Clickable x
+                this.y = 0; // Clickable y
+                
+                this.currentX = undefined;
+                this.targetX = 0;
+                this.currentY = undefined;
+                this.targetY = 0;
+                this.currentFanOffset = undefined;
+                this.targetFanOffset = 0;
+            }
+        }
+
+        // --- Helper Functions ---
+
+        function lerp(start, end, amt) {
+            const s = Number(start) || 0;
+            const e = Number(end) || 0;
+            return (1 - amt) * s + amt * e;
+        }
+        
+        /** UPDATED: Creates a table pattern based on selected texture */
+        function createTablePattern(color, textureType) {
+            const patternCanvas = document.createElement('canvas');
+            const patternCtx = patternCanvas.getContext('2d');
+            const size = 100; // Increased size slightly for wood grain
+            patternCanvas.width = size;
+            patternCanvas.height = size;
+
+            // Base color
+            patternCtx.fillStyle = color;
+            patternCtx.fillRect(0, 0, size, size);
+
+            // Add texture if not 'solid'
+            if (textureType === 'felt') {
+                // Add noise for felt texture
+                const imageData = patternCtx.getImageData(0, 0, size, size);
+                const data = imageData.data;
+                for (let i = 0; i < data.length; i += 4) {
+                    const noise = Math.random() * 50 - 25;
+                    data[i] = Math.max(0, Math.min(255, data[i] + noise));     // Red
+                    data[i + 1] = Math.max(0, Math.min(255, data[i + 1] + noise)); // Green
+                    data[i + 2] = Math.max(0, Math.min(255, data[i + 2] + noise)); // Blue
+                }
+                patternCtx.putImageData(imageData, 0, 0);
+            } else if (textureType === 'wood') {
+                 // Simple wood grain effect - draw lines
+                patternCtx.strokeStyle = 'rgba(0, 0, 0, 0.1)'; // Darker shade for grain
+                patternCtx.lineWidth = 1;
+                for (let i = 0; i < size; i += Math.random() * 10 + 5) { // Random spacing
+                    patternCtx.beginPath();
+                    patternCtx.moveTo(0, i + Math.random() * 4 - 2); // Slightly wavy
+                    patternCtx.lineTo(size, i + Math.random() * 4 - 2); // Slightly wavy
+                    patternCtx.stroke();
+                }
+                 // Add subtle knots (darker circles)
+                 patternCtx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+                 for(let i = 0; i < 3; i++) { // Add a few knots
+                     const knotX = Math.random() * size;
+                     const knotY = Math.random() * size;
+                     const knotRadius = Math.random() * 5 + 3;
+                     patternCtx.beginPath();
+                     patternCtx.arc(knotX, knotY, knotRadius, 0, Math.PI * 2);
+                     patternCtx.fill();
+                 }
+
+            }
+            // --- Add other texture types here ---
+
+            // Create a pattern from this off-screen canvas
+            tablePattern = ctx.createPattern(patternCanvas, 'repeat');
+        }
+        
+        function sortHand(hand) {
+            const validHand = hand.filter(card => card);
+            validHand.sort((a, b) => a.rank - b.rank);
+            const handIndex = allHands.findIndex(h => h === hand);
+            if (handIndex > -1) {
+                allHands[handIndex] = validHand;
+            }
+        }
+
+        function createAndShuffleDeck() {
+            deck = [];
+            for (let d = 0; d < numDecks; d++) {
+                for (const suit of SUITS) {
+                    for (const value of VALUES) {
+                        deck.push(new Card(suit, value));
+                    }
+                }
+            }
+            for (let i = deck.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [deck[i], deck[j]] = [deck[j], deck[i]];
+            }
+        }
+
+        function dealCards() {
+            let i = 0;
+            const numTotalPlayers = allHands.length;
+            while (deck.length > 0) {
+                if (allHands[i % numTotalPlayers]) {
+                    allHands[i % numTotalPlayers].push(deck.pop());
+                }
+                i++;
+            }
+            allHands.forEach(hand => {
+                 if(hand) sortHand(hand); 
+            });
+        }
+
+        function isMouseInRect(mx, my, rect) {
+            if (!rect) return false;
+            return mx > rect.x && mx < rect.x + rect.w && my > rect.y && my < rect.y + rect.h;
+        }
+
+        function setResolveMessage(msg, duration = 2000) {
+            showResolveMessage = { text: msg, time: Date.now(), duration: duration };
+        }
+
+        function wrapText(context, text, x, y, maxWidth, lineHeight) {
+            const words = text.split(' ');
+            let line = '';
+            let currentY = y;
+
+            for (let n = 0; n < words.length; n++) {
+                const testLine = line + words[n] + ' ';
+                const metrics = context.measureText(testLine);
+                const testWidth = metrics.width;
+                if (testWidth > maxWidth && n > 0) {
+                    context.fillText(line.trim(), x, currentY); // Trim trailing space
+                    line = words[n] + ' ';
+                    currentY += lineHeight;
+                } else {
+                    line = testLine;
+                }
+            }
+            context.fillText(line.trim(), x, currentY); // Trim trailing space
+        }
+
+        /** UPDATED: Draws card back pattern */
+        function drawCardBackPattern(ctx, x, y, width, height, patternType) {
+            // NOTE: Clipping is now handled in drawCard before this is called
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.1)'; // Base pattern color
+
+            if (patternType === 'stripes') {
+                const stripeHeight = 10;
+                const numStripes = Math.floor((height - 20) / (stripeHeight * 2)) + 1;
+                for (let i = 0; i < numStripes; i++) {
+                    ctx.fillRect(x + 10, y + 10 + i * stripeHeight * 2, width - 20, stripeHeight);
+                }
+            } else if (patternType === 'dots') {
+                const dotRadius = 4;
+                const spacingX = 15; const spacingY = 15;
+                const startX = x + 15; const startY = y + 15;
+                for (let row = 0; startY + row * spacingY < y + height - 10; row++) {
+                    for (let col = 0; startX + col * spacingX < x + width - 10; col++) {
+                        ctx.beginPath();
+                        ctx.arc(startX + col * spacingX, startY + row * spacingY, dotRadius, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                }
+            } else if (patternType === 'crosshatch') {
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+                ctx.lineWidth = 1;
+                const spacing = 8;
+                // Draw lines within the original card bounds (clipping handles the edges)
+                for (let i = -height; i < width + height; i += spacing) { 
+                    ctx.beginPath();
+                    ctx.moveTo(x + i, y);
+                    ctx.lineTo(x + i + height, y + height); 
+                    ctx.stroke();
+                }
+                 for (let i = -height; i < width + height; i += spacing) { 
+                    ctx.beginPath();
+                    ctx.moveTo(x + i, y);
+                    ctx.lineTo(x + i - height, y + height); 
+                    ctx.stroke();
+                }
+            } else if (patternType === 'circles') {
+                const circleRadius = 5;
+                const spacingX = 18; const spacingY = 18;
+                const startX = x + 18; const startY = y + 18;
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+                ctx.lineWidth = 1.5;
+                 for (let row = 0; startY + row * spacingY < y + height - 10; row++) {
+                    for (let col = 0; startX + col * spacingX < x + width - 10; col++) {
+                        ctx.beginPath();
+                        ctx.arc(startX + col * spacingX, startY + row * spacingY, circleRadius, 0, Math.PI * 2);
+                        ctx.stroke(); // Draw outlines instead of filling
+                    }
+                }
+            }
+            // Restore happens in drawCard after clipping is removed
+        }
+
+
+        // --- Drawing Functions ---
+        
+        /** Draws a single card. UPDATED: Uses inset path for clipping back pattern */
+        function drawCard(card, x, y, faceUp = false) {
+            let drawY = y;
+            let drawX = x;
+            const cornerRadius = 5;
+
+            if(faceUp && card) {
+                card.x = drawX;
+                card.y = drawY; 
+            }
+
+            ctx.save(); // Save context before shadow, path etc.
+            ctx.shadowColor = 'rgba(0,0,0,0.3)';
+            ctx.shadowBlur = 10;
+            ctx.shadowOffsetX = 2;
+            ctx.shadowOffsetY = 2;
+
+            // --- Define the MAIN Rounded Rectangle Path ---
+            ctx.beginPath();
+            ctx.moveTo(drawX + cornerRadius, drawY);
+            ctx.lineTo(drawX + CARD_WIDTH - cornerRadius, drawY);
+            ctx.quadraticCurveTo(drawX + CARD_WIDTH, drawY, drawX + CARD_WIDTH, drawY + cornerRadius);
+            ctx.lineTo(drawX + CARD_WIDTH, drawY + CARD_HEIGHT - cornerRadius);
+            ctx.quadraticCurveTo(drawX + CARD_WIDTH, drawY + CARD_HEIGHT, drawX + CARD_WIDTH - cornerRadius, drawY + CARD_HEIGHT);
+            ctx.lineTo(drawX + cornerRadius, drawY + CARD_HEIGHT);
+            ctx.quadraticCurveTo(drawX, drawY + CARD_HEIGHT, drawX, drawY + CARD_HEIGHT - cornerRadius);
+            ctx.lineTo(drawX, drawY + cornerRadius);
+            ctx.quadraticCurveTo(drawX, drawY, drawX + cornerRadius, drawY);
+            ctx.closePath();
+            // --- Path defined ---
+
+            // Card body color 
+            ctx.fillStyle = faceUp ? 'white' : cardBackColor;
+            ctx.strokeStyle = '#555';
+            ctx.lineWidth = 1;
+
+             // --- Card back pattern drawing with INSET clipping ---
+             if (!faceUp) {
+                 // Fill the main path with the base back color FIRST
+                 ctx.fill();
+
+                 ctx.save(); // Save before creating inset path and clipping
+
+                 // --- Define slightly INSET path for clipping ---
+                 const inset = 0.5; // Inset by half a pixel to contain stroke
+                 ctx.beginPath();
+                 ctx.moveTo(drawX + cornerRadius, drawY + inset); // Move start slightly down
+                 ctx.lineTo(drawX + CARD_WIDTH - cornerRadius, drawY + inset); // End slightly down
+                 ctx.quadraticCurveTo(drawX + CARD_WIDTH - inset, drawY + inset, drawX + CARD_WIDTH - inset, drawY + cornerRadius); // Control points inset
+                 ctx.lineTo(drawX + CARD_WIDTH - inset, drawY + CARD_HEIGHT - cornerRadius); // Line slightly left
+                 ctx.quadraticCurveTo(drawX + CARD_WIDTH - inset, drawY + CARD_HEIGHT - inset, drawX + CARD_WIDTH - cornerRadius, drawY + CARD_HEIGHT - inset); // Control points inset
+                 ctx.lineTo(drawX + cornerRadius, drawY + CARD_HEIGHT - inset); // Line slightly up
+                 ctx.quadraticCurveTo(drawX + inset, drawY + CARD_HEIGHT - inset, drawX + inset, drawY + CARD_HEIGHT - cornerRadius); // Control points inset
+                 ctx.lineTo(drawX + inset, drawY + cornerRadius); // Line slightly right
+                 ctx.quadraticCurveTo(drawX + inset, drawY + inset, drawX + cornerRadius, drawY + inset); // Control points inset
+                 ctx.closePath();
+                 // --- Inset path defined ---
+
+                 ctx.clip(); // Apply the INSET path as clipping mask
+
+                 // Draw the pattern normally, it will be clipped by the inset path
+                 drawCardBackPattern(ctx, drawX, drawY, CARD_WIDTH, CARD_HEIGHT, selectedCardBackPattern);
+
+                 ctx.restore(); // Remove clipping mask
+
+             } else {
+                  // If face up, fill normally using the main path
+                  ctx.fill();
+             }
+              // --- End pattern drawing ---
+
+            // Stroke the MAIN outline (do this after fill/pattern)
+            ctx.stroke(); 
+            
+            // Card value (drawn on top)
+            if (faceUp && card) {
+                // Save context specifically for text drawing if needed
+                ctx.save(); 
+                ctx.fillStyle = card.color;
+                ctx.font = 'bold 20px Inter';
+                ctx.textAlign = 'left';
+                // Reset shadow for text if it was applied before path
+                ctx.shadowColor = 'transparent'; 
+                ctx.fillText(card.value, drawX + 8, drawY + 22);
+                ctx.font = '16px Inter';
+                ctx.fillText(card.suit, drawX + 8, drawY + 42);
+                ctx.restore(); // Restore after top-left text
+
+                ctx.save(); // Save context before rotating for bottom-right text
+                ctx.translate(drawX + CARD_WIDTH - 8, drawY + CARD_HEIGHT - 12);
+                ctx.rotate(Math.PI);
+                ctx.fillStyle = card.color; // Set fillStyle again after restore
+                ctx.font = 'bold 20px Inter';
+                ctx.textAlign = 'left';
+                 ctx.shadowColor = 'transparent'; // Ensure no shadow
+                ctx.fillText(card.value, 0, 0);
+                ctx.font = '16px Inter';
+                ctx.fillText(card.suit, 0, -20);
+                ctx.restore(); // Restore context after rotating
+            }
+            ctx.restore(); // Restore context after initial save (shadow etc.)
+        }
+
+
+        /** Draws the player's hand. Added card count */
+        function drawPlayerHand() {
+            const playerHand = allHands[0];
+            if (!playerHand) return; 
+            const handAreaWidth = baseWidth - 220;
+            const handPadding = 20;
+            
+            const totalWidth = CARD_WIDTH + (playerHand.length - 1) * CARD_OVERLAP;
+            let startX;
+            let newOverlap = CARD_OVERLAP;
+            
+            let currentHoverCardIndex = -1;
+            if (currentHoverCard) {
+                currentHoverCardIndex = playerHand.indexOf(currentHoverCard);
+            }
+
+            if (totalWidth > (handAreaWidth - handPadding * 2)) {
+                startX = handPadding;
+                newOverlap = (handAreaWidth - handPadding * 2 - CARD_WIDTH) / (playerHand.length - 1 || 1);
+            } else {
+                 startX = (handAreaWidth - totalWidth) / 2 + handPadding; // Added padding
+            }
+            
+            // --- Draw Player Card Count ---
+            const cardCount = playerHand.length;
+            const countTextY = baseHeight - CARD_HEIGHT - 20 - 25; 
+            ctx.save();
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+            ctx.font = 'bold 16px Inter';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'bottom';
+            ctx.shadowColor = 'rgba(0,0,0,0.5)';
+            ctx.shadowBlur = 3;
+            ctx.shadowOffsetX = 1;
+            ctx.shadowOffsetY = 1;
+            ctx.fillText(`Your Cards: ${cardCount}`, handPadding, countTextY);
+            ctx.restore(); 
+            // --- End Card Count ---
+            
+            playerHand.forEach((card, i) => {
+                if (!card) return; 
+                const originalX = startX + i * newOverlap;
+                const baseY = baseHeight - CARD_HEIGHT - 20;
+                
+                card.targetX = originalX;
+                card.targetFanOffset = 0;
+                card.targetY = baseY;
+                
+                if (currentHoverCardIndex !== -1 && i > currentHoverCardIndex) {
+                    card.targetFanOffset = HOVER_FAN_OFFSET; 
+                }
+                
+                if (card.selected) card.targetY = baseY - 20;
+                else if (card.isHovered) card.targetY = baseY - HOVER_ELEVATION;
+                
+                if (card.currentX === undefined) card.currentX = card.targetX;
+                if (card.currentY === undefined) card.currentY = card.targetY;
+                if (card.currentFanOffset === undefined) card.currentFanOffset = card.targetFanOffset;
+                
+                const animSpeed = 0.2; 
+                card.currentX = lerp(card.currentX, card.targetX, animSpeed);
+                card.currentY = lerp(card.currentY, card.targetY, animSpeed);
+                card.currentFanOffset = lerp(card.currentFanOffset, card.targetFanOffset, animSpeed);
+
+                drawCard(card, card.currentX + card.currentFanOffset, card.currentY, true);
+                
+                clickableAreas[`card_PLAYER_${i}`] = { 
+                    rect: { 
+                        x: originalX, 
+                        y: baseY, 
+                        w: newOverlap, 
+                        h: CARD_HEIGHT 
+                    }, 
+                    card: card 
+                };
+            });
+            
+            if (playerHand.length > 0) {
+                const lastIndex = playerHand.length - 1;
+                if (clickableAreas[`card_PLAYER_${lastIndex}`]) {
+                    clickableAreas[`card_PLAYER_${lastIndex}`].rect.w = CARD_WIDTH;
+                }
+            }
+        }
+
+        function drawAIHands() {
+            const numAIs = allHands.length - 1;
+            if (numAIs === 0) return;
+
+            const topAreaWidth = baseWidth - 40; 
+            const slotWidth = topAreaWidth / numAIs;
+                 
+            for (let i = 1; i < allHands.length; i++) {
+                const aiHand = allHands[i];
+                 if (!aiHand) continue; 
+                const slotX = 20 + (i - 1) * slotWidth;
+                
+                const x = slotX + (slotWidth / 2) - (CARD_WIDTH / 2);
+                const y = 20;
+                
+                let dummyCard = new Card('♠', 'A'); 
+                drawCard(dummyCard, x, y, false); 
+
+                if (currentPlayerIndex === i) {
+                    ctx.strokeStyle = '#facc15';
+                    ctx.lineWidth = 4;
+                    ctx.strokeRect(x - 2, y - 2, CARD_WIDTH + 4, CARD_HEIGHT + 4);
+                    ctx.lineWidth = 1; 
+                }
+
+                ctx.save();
+                ctx.font = 'bold 36px Inter';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.shadowColor = 'black';
+                ctx.shadowBlur = 5;
+                ctx.shadowOffsetX = 2;
+                ctx.shadowOffsetY = 2;
+                ctx.fillStyle = 'white';
+                ctx.fillText(aiHand.length, x + CARD_WIDTH / 2, y + CARD_HEIGHT / 2);
+                ctx.restore(); 
+
+                ctx.fillStyle = 'white';
+                ctx.font = '16px Inter';
+                ctx.textAlign = 'center';
+                ctx.fillText(`AI ${i}`, x + CARD_WIDTH / 2, y + CARD_HEIGHT + 20); 
+            }
+        }
+
+        function drawDiscardPile() {
+             if (discardPile.length > 0) {
+                 const topCard = discardPile[0] || new Card('♠', 'A');
+                 drawCard(topCard, baseWidth / 2 - CARD_WIDTH / 2, baseHeight / 2 - CARD_HEIGHT / 2, false);
+
+                 if (discardPile.length > 1) {
+                     const secondCard = discardPile[1] || new Card('♠', 'A');
+                     drawCard(secondCard, baseWidth / 2 - CARD_WIDTH / 2 + 5, baseHeight / 2 - CARD_HEIGHT / 2 - 5, false);
+                 }
+             }
+            ctx.fillStyle = 'white';
+            ctx.font = '16px Inter';
+            ctx.textAlign = 'center';
+            ctx.fillText(`Pile: ${discardPile.length} Cards`, baseWidth / 2, baseHeight / 2 + CARD_HEIGHT / 2 + 25);
+        }
+
+        function drawUI() {
+            const buttonY_Quit = baseHeight - 20 - 40; 
+            const buttonY_BS = buttonY_Quit - 10 - 40; 
+            const buttonY_Play = buttonY_BS - 10 - 50;  
+
+            clickableAreas['play'] = { rect: { x: baseWidth - 190, y: buttonY_Play, w: 170, h: 50 } }; 
+            clickableAreas['bs'] = { rect: { x: baseWidth - 190, y: buttonY_BS, w: 170, h: 40 } };
+            clickableAreas['quit'] = { rect: { x: baseWidth - 190, y: buttonY_Quit, w: 170, h: 40 } };
+
+            const isPlayerTurn = (currentPlayerIndex === 0);
+
+            // Play Button
+            ctx.save();
+            if (isPlayerTurn) {
+                ctx.fillStyle = (hoveredButtonKey === 'play') ? '#16a34a' : '#22c55e'; 
+                ctx.strokeStyle = '#16a34a';
+                if(hoveredButtonKey === 'play') { ctx.shadowColor = 'rgba(255,255,255,0.3)'; ctx.shadowBlur = 10; }
+            } else { ctx.fillStyle = '#555'; ctx.strokeStyle = '#444'; }
+            ctx.lineWidth = 2; ctx.beginPath(); ctx.roundRect(clickableAreas['play'].rect.x, clickableAreas['play'].rect.y, clickableAreas['play'].rect.w, clickableAreas['play'].rect.h, 5); ctx.fill(); ctx.stroke(); ctx.restore(); 
+            ctx.fillStyle = isPlayerTurn ? 'white' : '#aaa'; ctx.font = 'bold 16px Inter'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('Play Selected Cards', clickableAreas['play'].rect.x + clickableAreas['play'].rect.w / 2, clickableAreas['play'].rect.y + clickableAreas['play'].rect.h / 2);
+
+            // BS Button
+            const canCallBS = (lastPlay.length > 0 && isPlayerTurn);
+            ctx.save();
+            if (canCallBS) {
+                ctx.fillStyle = (hoveredButtonKey === 'bs') ? '#d97706' : '#f59e0b'; 
+                ctx.strokeStyle = '#d97706';
+                 if(hoveredButtonKey === 'bs') { ctx.shadowColor = 'rgba(255,255,255,0.3)'; ctx.shadowBlur = 10; }
+            } else { ctx.fillStyle = '#555'; ctx.strokeStyle = '#444'; }
+            ctx.beginPath(); ctx.roundRect(clickableAreas['bs'].rect.x, clickableAreas['bs'].rect.y, clickableAreas['bs'].rect.w, clickableAreas['bs'].rect.h, 5); ctx.fill(); ctx.stroke(); ctx.restore(); 
+            ctx.fillStyle = canCallBS ? 'white' : '#aaa'; ctx.font = 'bold 16px Inter'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('Call Bullshit!', clickableAreas['bs'].rect.x + clickableAreas['bs'].rect.w / 2, clickableAreas['bs'].rect.y + clickableAreas['bs'].rect.h / 2);
+
+            // Quit Button
+            ctx.save();
+            ctx.fillStyle = (hoveredButtonKey === 'quit') ? '#7f1d1d' : '#991b1b'; 
+            ctx.strokeStyle = '#7f1d1d';
+            if(hoveredButtonKey === 'quit') { ctx.shadowColor = 'rgba(255,255,255,0.3)'; ctx.shadowBlur = 10; }
+            ctx.lineWidth = 2; ctx.beginPath(); ctx.roundRect(clickableAreas['quit'].rect.x, clickableAreas['quit'].rect.y, clickableAreas['quit'].rect.w, clickableAreas['quit'].rect.h, 5); ctx.fill(); ctx.stroke(); ctx.restore();
+            ctx.fillStyle = 'white'; ctx.font = 'bold 16px Inter'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('Quit Game', clickableAreas['quit'].rect.x + clickableAreas['quit'].rect.w / 2, clickableAreas['quit'].rect.y + clickableAreas['quit'].rect.h / 2);
+
+            // Rank To Play Display
+            const rankToPlay = VALUES[currentRankIndex];
+            ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 5; ctx.shadowOffsetX = 2; ctx.shadowOffsetY = 2; ctx.fillStyle = 'white'; ctx.font = 'bold 24px Inter'; ctx.fillText("Rank to Play:", 150, baseHeight / 2 - 50); ctx.restore(); 
+            const cardX = 150 - CARD_WIDTH / 2; const cardY = baseHeight / 2 - 20; let dummyRankCard = new Card('♠', 'A'); drawCard(dummyRankCard, cardX, cardY, false);
+            ctx.save(); ctx.shadowColor = 'rgba(0,0,0,0.7)'; ctx.shadowBlur = 5; ctx.shadowOffsetX = 2; ctx.shadowOffsetY = 2; ctx.fillStyle = '#facc15'; ctx.font = 'bold 36px Inter'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(rankToPlay, 150, cardY + CARD_HEIGHT / 2); ctx.restore(); 
+            
+            // Message Box
+            const messageBoxY = baseHeight - 250; const mainMessageY = messageBoxY + 20; const lastMessageY = mainMessageY + 20; 
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.4)'; ctx.beginPath(); ctx.roundRect(baseWidth / 2 - 250, messageBoxY, 500, 65, 10); ctx.fill();
+            ctx.fillStyle = '#f0f0f0'; ctx.font = '16px Inter'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(message, baseWidth / 2, mainMessageY);
+            ctx.fillStyle = '#aaa'; ctx.font = 'italic 14px Inter'; ctx.fillText(lastMessage, baseWidth / 2, lastMessageY);
+             
+            ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+        }
+
+        function drawQuitModal() {
+            ctx.fillStyle = 'rgba(0,0,0,0.75)'; ctx.fillRect(0, 0, baseWidth, baseHeight);
+            const modalWidth = 400; const modalHeight = 180; const modalX = (baseWidth - modalWidth) / 2; const modalY = (baseHeight - modalHeight) / 2;
+            ctx.fillStyle = '#333'; ctx.strokeStyle = '#555'; ctx.lineWidth = 2; ctx.beginPath(); ctx.roundRect(modalX, modalY, modalWidth, modalHeight, 10); ctx.fill(); ctx.stroke();
+            ctx.fillStyle = 'white'; ctx.font = 'bold 24px Inter'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText("Are you sure?", baseWidth / 2, modalY + 40);
+            const yesBtn = { x: modalX + 40, y: modalY + 100, w: 140, h: 40 }; clickableAreas['quit_confirm'] = { rect: yesBtn }; ctx.fillStyle = (hoveredButtonKey === 'quit_confirm') ? '#dc2626' : '#ef4444'; ctx.beginPath(); ctx.roundRect(yesBtn.x, yesBtn.y, yesBtn.w, yesBtn.h, 5); ctx.fill(); ctx.fillStyle = 'white'; ctx.font = 'bold 16px Inter'; ctx.fillText("Yes, Quit", yesBtn.x + yesBtn.w / 2, yesBtn.y + yesBtn.h / 2);
+            const noBtn = { x: modalX + modalWidth - 180, y: modalY + 100, w: 140, h: 40 }; clickableAreas['quit_cancel'] = { rect: noBtn }; ctx.fillStyle = (hoveredButtonKey === 'quit_cancel') ? '#555' : '#777'; ctx.beginPath(); ctx.roundRect(noBtn.x, noBtn.y, noBtn.w, noBtn.h, 5); ctx.fill(); ctx.fillStyle = 'white'; ctx.font = 'bold 16px Inter'; ctx.fillText("No, Cancel", noBtn.x + noBtn.w / 2, noBtn.y + noBtn.h / 2);
+            // Reset alignment needed after centering text
+            ctx.textAlign = 'left'; 
+            ctx.textBaseline = 'top'; 
+        }
+        
+        /** Draws the Start Menu */
+        function drawStartMenu() {
+            ctx.fillStyle = tablePattern; // Use tablePattern
+            ctx.fillRect(0, 0, baseWidth, baseHeight);
+            
+            const titleY = baseHeight / 2 - 100; 
+            ctx.fillStyle = 'white'; ctx.font = 'bold 64px Inter'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 5; ctx.shadowOffsetX = 2; ctx.shadowOffsetY = 2;
+            ctx.strokeStyle = '#444'; ctx.lineWidth = 3; ctx.strokeText("Bullshit", baseWidth / 2, titleY);
+            ctx.fillText("Bullshit", baseWidth / 2, titleY);
+            ctx.shadowColor = 'transparent'; 
+
+            // Start Button
+            const startBtn = { x: baseWidth/2 - 100, y: baseHeight/2, w: 200, h: 50 }; clickableAreas['start_game'] = { rect: startBtn };
+            ctx.save(); if (hoveredButtonKey === 'start_game') { ctx.fillStyle = '#16a34a'; ctx.shadowColor = 'rgba(255,255,255,0.3)'; ctx.shadowBlur = 10; } else { ctx.fillStyle = '#22c55e'; }
+            ctx.beginPath(); ctx.roundRect(startBtn.x, startBtn.y, startBtn.w, startBtn.h, 10); ctx.fill(); ctx.restore(); 
+            ctx.fillStyle = 'white'; ctx.font = 'bold 24px Inter'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('Start Game', startBtn.x + startBtn.w / 2, startBtn.y + startBtn.h / 2);
+            
+            // Settings Button
+            const settingsBtn = { x: baseWidth/2 - 100, y: baseHeight/2 + 70, w: 200, h: 50 }; clickableAreas['settings'] = { rect: settingsBtn };
+            ctx.save(); if (hoveredButtonKey === 'settings') { ctx.fillStyle = '#d97706'; ctx.shadowColor = 'rgba(255,255,255,0.3)'; ctx.shadowBlur = 10; } else { ctx.fillStyle = '#f59e0b'; }
+            ctx.beginPath(); ctx.roundRect(settingsBtn.x, settingsBtn.y, settingsBtn.w, settingsBtn.h, 10); ctx.fill(); ctx.restore(); 
+            ctx.fillStyle = 'white'; ctx.font = 'bold 24px Inter'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('Settings', settingsBtn.x + settingsBtn.w / 2, settingsBtn.y + settingsBtn.h / 2);
+
+            ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+        }
+        
+        /** Draws the Settings Menu - UPDATED with Texture/Pattern options */
+        function drawSettingsMenu() {
+            ctx.fillStyle = tablePattern; // Use tablePattern
+            ctx.fillRect(0, 0, baseWidth, baseHeight);
+            
+            ctx.fillStyle = 'white'; ctx.font = 'bold 48px Inter'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText("Settings", baseWidth / 2, 40); // Adjusted Y higher
+
+            // Back Button
+            const backBtn = { x: 20, y: 20, w: 100, h: 40 }; clickableAreas['back_to_menu'] = { rect: backBtn }; ctx.fillStyle = (hoveredButtonKey === 'back_to_menu') ? '#dc2626' : '#ef4444'; ctx.beginPath(); ctx.roundRect(backBtn.x, backBtn.y, backBtn.w, backBtn.h, 10); ctx.fill(); ctx.fillStyle = 'white'; ctx.font = 'bold 18px Inter'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('Back', backBtn.x + backBtn.w / 2, backBtn.y + backBtn.h / 2);
+
+            let currentY = 80; // Starting Y for options
+
+            // --- AI Opponents ---
+            ctx.fillStyle = 'white'; ctx.font = '20px Inter'; ctx.textAlign = 'center'; ctx.fillText("AI Opponents:", baseWidth / 2, currentY); currentY += 30;
+            const aiBtnWidth = 80, aiBtnHeight = 40, aiBtnSpacing = 15; const totalAiBtnWidth = 4 * aiBtnWidth + 3 * aiBtnSpacing; const startAiBtnX = (baseWidth - totalAiBtnWidth) / 2;
+            for (let i = 1; i <= 4; i++) {
+                const btn = { x: startAiBtnX + (i - 1) * (aiBtnWidth + aiBtnSpacing), y: currentY, w: aiBtnWidth, h: aiBtnHeight }; clickableAreas[`ai_${i}`] = { rect: btn, num: i };
+                if (i === selectedAINum) { ctx.fillStyle = (hoveredButtonKey === `ai_${i}`) ? '#fde047' : '#facc15'; } else { ctx.fillStyle = (hoveredButtonKey === `ai_${i}`) ? '#555' : '#444'; }
+                ctx.strokeStyle = (i === selectedAINum) ? '#fde047' : '#666'; ctx.lineWidth = 2; ctx.beginPath(); ctx.roundRect(btn.x, btn.y, btn.w, btn.h, 10); ctx.fill(); ctx.stroke();
+                ctx.fillStyle = 'white'; ctx.font = 'bold 20px Inter'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(i, btn.x + btn.w / 2, btn.y + btn.h / 2);
+            }
+            currentY += aiBtnHeight + 20; // Adjusted spacing
+
+            // --- Number of Decks ---
+            ctx.fillStyle = 'white'; ctx.font = '20px Inter'; ctx.textAlign = 'center'; ctx.fillText("Number of Decks:", baseWidth / 2, currentY); currentY += 30;
+            const deckBtnWidth = 100, deckBtnHeight = 40, deckBtnSpacing = 20; const totalDeckBtnWidth = 2 * deckBtnWidth + deckBtnSpacing; const startDeckBtnX = (baseWidth - totalDeckBtnWidth) / 2;
+            for (let i = 1; i <= 2; i++) {
+                const btn = { x: startDeckBtnX + (i - 1) * (deckBtnWidth + deckBtnSpacing), y: currentY, w: deckBtnWidth, h: deckBtnHeight }; clickableAreas[`deck_${i}`] = { rect: btn, num: i };
+                if (i === numDecks) { ctx.fillStyle = (hoveredButtonKey === `deck_${i}`) ? '#fde047' : '#facc15'; } else { ctx.fillStyle = (hoveredButtonKey === `deck_${i}`) ? '#555' : '#444'; }
+                ctx.strokeStyle = (i === numDecks) ? '#fde047' : '#666'; ctx.lineWidth = 2; ctx.beginPath(); ctx.roundRect(btn.x, btn.y, btn.w, btn.h, 10); ctx.fill(); ctx.stroke();
+                ctx.fillStyle = 'white'; ctx.font = 'bold 20px Inter'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(i, btn.x + btn.w / 2, btn.y + btn.h / 2);
+            }
+            currentY += deckBtnHeight + 20; // Adjusted spacing
+
+            // --- Table Color ---
+            ctx.fillStyle = 'white'; ctx.font = '20px Inter'; ctx.textAlign = 'center'; ctx.fillText("Table Color:", baseWidth / 2, currentY); currentY += 30;
+            const colorSwatchSize = 50, colorSwatchSpacing = 20; const colors = Object.keys(tableColors); const totalColorSwatchWidth = colors.length * colorSwatchSize + (colors.length - 1) * colorSwatchSpacing; const startColorSwatchX = (baseWidth - totalColorSwatchWidth) / 2;
+            colors.forEach((name, i) => {
+                const color = tableColors[name]; const swatch = { x: startColorSwatchX + i * (colorSwatchSize + colorSwatchSpacing), y: currentY, w: colorSwatchSize, h: colorSwatchSize }; clickableAreas[`tablecolor_${name}`] = { rect: swatch, color: color };
+                ctx.fillStyle = color; ctx.beginPath(); ctx.roundRect(swatch.x, swatch.y, swatch.w, swatch.h, 10); ctx.fill();
+                if (color === tableColor || hoveredButtonKey === `tablecolor_${name}`) { ctx.strokeStyle = (hoveredButtonKey === `tablecolor_${name}`) ? 'white' : '#facc15'; ctx.lineWidth = 4; ctx.stroke(); }
+            });
+            currentY += colorSwatchSize + 20; // Adjusted spacing
+
+            // --- Table Texture --- UPDATED Layout
+            ctx.fillStyle = 'white'; ctx.font = '20px Inter'; ctx.textAlign = 'center'; ctx.fillText("Table Texture:", baseWidth / 2, currentY); currentY += 30;
+            const textureBtnWidth = 80, textureBtnHeight = 40, textureBtnSpacing = 15; const textures = Object.keys(tableTextures); const totalTextureBtnWidth = textures.length * textureBtnWidth + (textures.length - 1) * textureBtnSpacing; const startTextureBtnX = (baseWidth - totalTextureBtnWidth) / 2;
+            textures.forEach((name, i) => {
+                const textureId = tableTextures[name]; const btn = { x: startTextureBtnX + i * (textureBtnWidth + textureBtnSpacing), y: currentY, w: textureBtnWidth, h: textureBtnHeight }; clickableAreas[`tabletexture_${name}`] = { rect: btn, texture: textureId };
+                if (textureId === selectedTableTexture) { ctx.fillStyle = (hoveredButtonKey === `tabletexture_${name}`) ? '#fde047' : '#facc15'; } else { ctx.fillStyle = (hoveredButtonKey === `tabletexture_${name}`) ? '#555' : '#444'; }
+                ctx.strokeStyle = (textureId === selectedTableTexture) ? '#fde047' : '#666'; ctx.lineWidth = 2; ctx.beginPath(); ctx.roundRect(btn.x, btn.y, btn.w, btn.h, 10); ctx.fill(); ctx.stroke();
+                ctx.fillStyle = 'white'; ctx.font = 'bold 16px Inter'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(name, btn.x + btn.w / 2, btn.y + btn.h / 2);
+            });
+             currentY += textureBtnHeight + 20; // Adjusted spacing
+
+            // --- Card Back Color ---
+            ctx.fillStyle = 'white'; ctx.font = '20px Inter'; ctx.textAlign = 'center'; ctx.fillText("Card Back Color:", baseWidth / 2, currentY); currentY += 30;
+            const backSwatchSize = 50, backSwatchSpacing = 20; const backColors = Object.keys(cardBackColors); const totalBackSwatchWidth = backColors.length * backSwatchSize + (backColors.length - 1) * backSwatchSpacing; const startBackSwatchX = (baseWidth - totalBackSwatchWidth) / 2;
+            backColors.forEach((name, i) => {
+                const color = cardBackColors[name]; const swatch = { x: startBackSwatchX + i * (backSwatchSize + backSwatchSpacing), y: currentY, w: backSwatchSize, h: backSwatchSize }; clickableAreas[`cardbackcolor_${name}`] = { rect: swatch, color: color };
+                ctx.fillStyle = color; ctx.beginPath(); ctx.roundRect(swatch.x, swatch.y, swatch.w, swatch.h, 10); ctx.fill();
+                if (color === cardBackColor || hoveredButtonKey === `cardbackcolor_${name}`) { ctx.strokeStyle = (hoveredButtonKey === `cardbackcolor_${name}`) ? 'white' : '#facc15'; ctx.lineWidth = 4; ctx.stroke(); }
+            });
+            currentY += backSwatchSize + 20; // Adjusted spacing
+
+            // --- Card Back Pattern --- UPDATED Layout
+            ctx.fillStyle = 'white'; ctx.font = '20px Inter'; ctx.textAlign = 'center'; ctx.fillText("Card Back Pattern:", baseWidth / 2, currentY); currentY += 30;
+            const patternBtnWidth = 80, patternBtnHeight = 40, patternBtnSpacing = 15; const patterns = Object.keys(cardBackPatterns); const totalPatternBtnWidth = patterns.length * patternBtnWidth + (patterns.length - 1) * patternBtnSpacing; const startPatternBtnX = (baseWidth - totalPatternBtnWidth) / 2;
+            patterns.forEach((name, i) => {
+                const patternId = cardBackPatterns[name]; const btn = { x: startPatternBtnX + i * (patternBtnWidth + patternBtnSpacing), y: currentY, w: patternBtnWidth, h: patternBtnHeight }; clickableAreas[`cardbackpattern_${name}`] = { rect: btn, pattern: patternId };
+                if (patternId === selectedCardBackPattern) { ctx.fillStyle = (hoveredButtonKey === `cardbackpattern_${name}`) ? '#fde047' : '#facc15'; } else { ctx.fillStyle = (hoveredButtonKey === `cardbackpattern_${name}`) ? '#555' : '#444'; }
+                ctx.strokeStyle = (patternId === selectedCardBackPattern) ? '#fde047' : '#666'; ctx.lineWidth = 2; ctx.beginPath(); ctx.roundRect(btn.x, btn.y, btn.w, btn.h, 10); ctx.fill(); ctx.stroke();
+                ctx.fillStyle = 'white'; ctx.font = 'bold 16px Inter'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(name, btn.x + btn.w / 2, btn.y + btn.h / 2);
+            });
+           
+            ctx.lineWidth = 1; 
+            ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+        }
+
+
+        function drawGameOver() {
+            ctx.fillStyle = 'rgba(0,0,0,0.85)'; ctx.fillRect(0, 0, baseWidth, baseHeight);
+            ctx.fillStyle = 'white'; ctx.font = 'bold 48px Inter'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(message, baseWidth / 2, baseHeight / 2 - 50);
+            const btn = { x: baseWidth/2 - 100, y: baseHeight/2 + 20, w: 200, h: 50 }; clickableAreas['restart'] = { rect: btn };
+            ctx.save(); if (hoveredButtonKey === 'restart') { ctx.fillStyle = '#16a34a'; ctx.shadowColor = 'rgba(255,255,255,0.3)'; ctx.shadowBlur = 10; } else { ctx.fillStyle = '#22c55e'; }
+            ctx.beginPath(); ctx.roundRect(btn.x, btn.y, btn.w, btn.h, 10); ctx.fill(); ctx.restore(); 
+            ctx.fillStyle = 'white'; ctx.font = 'bold 24px Inter'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('Main Menu', btn.x + btn.w / 2, btn.y + btn.h / 2);
+            ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+        }
+
+        function gameLoop() {
+            ctx.fillStyle = tablePattern; // Use tablePattern
+            ctx.fillRect(0, 0, baseWidth, baseHeight);
+            clickableAreas = {};
+
+            if (gameState === 'START_MENU') drawStartMenu();
+            else if (gameState === 'SETTINGS_MENU') drawSettingsMenu();
+            else if (gameState === 'PLAYING') { drawAIHands(); drawDiscardPile(); drawPlayerHand(); drawUI(); }
+            else if (gameState === 'GAME_OVER') drawGameOver();
+
+            // Resolve Message Drawing
+            if (showResolveMessage && gameState === 'PLAYING') {
+                 if (Date.now() - showResolveMessage.time > showResolveMessage.duration) showResolveMessage = null;
+                 else {
+                    const boxWidth=400, boxHeight=100, boxX = baseWidth/2-boxWidth/2, boxY = baseHeight/2-boxHeight/2;
+                    const textX=baseWidth/2, textY=boxY+20, lineHeight=24, maxWidth=boxWidth-40; // Adjusted textY slightly
+                    ctx.fillStyle='rgba(0,0,0,0.8)'; ctx.beginPath(); ctx.roundRect(boxX, boxY, boxWidth, boxHeight, 10); ctx.fill();
+                    ctx.fillStyle='#facc15'; ctx.font='bold 20px Inter'; ctx.textAlign='center'; ctx.textBaseline='top'; 
+                    wrapText(ctx, showResolveMessage.text, textX, textY, maxWidth, lineHeight);
+                    ctx.textAlign='left'; ctx.textBaseline='top'; 
+                }
+            }
+            if (showQuitConfirmation) drawQuitModal();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // --- Game Logic ---
+        function advanceTurn() {
+             if (!allHands || allHands.length === 0) { console.error("Advance turn: no hands."); gameState = 'START_MENU'; return; }
+            currentPlayerIndex = (currentPlayerIndex + 1) % allHands.length;
+            if (currentPlayerIndex === 0) message = `Your turn. Call BS or play ${VALUES[currentRankIndex]}.`;
+            else {
+                message = `AI ${currentPlayerIndex} is thinking...`;
+                 if (typeof aiTurn === 'function') setTimeout(aiTurn, 1500 + Math.random() * 1500); 
+                 else console.error("aiTurn not function.");
+            }
+        }
+
+        function handlePlayerPlay() {
+            if (currentPlayerIndex !== 0 || !allHands[0]) return; 
+            const playerHand = allHands[0];
+            const selectedCards = playerHand.filter(c => c && c.selected); 
+            if (selectedCards.length === 0) { message = "You must select at least one card to play."; return; }
+            const claimedRank = VALUES[currentRankIndex]; lastPlay = [];
+            allHands[0] = playerHand.filter(c => !(c && c.selected)); 
+            for (const card of selectedCards) {
+                 if (!card) continue; 
+                card.selected = false; card.isHovered = false; discardPile.push(card);
+                lastPlay.push({ card: card, playerLied: (card.value !== claimedRank), claimedRank: claimedRank, playerIndex: 0 });
+            }
+            currentHoverCard = null; lastMessage = `You played ${selectedCards.length} x ${claimedRank}.`;
+            if (checkWin(0)) return; 
+            currentRankIndex = (currentRankIndex + 1) % VALUES.length; advanceTurn();
+        }
+
+        function handlePlayerCallBS() {
+            if (currentPlayerIndex !== 0 || lastPlay.length === 0 || !allHands[0]) return; 
+            const wasALie = lastPlay.some(p => p && p.playerLied); 
+            const lastPlayerIndex = lastPlay[0]?.playerIndex; 
+            if (lastPlayerIndex === undefined || !allHands[lastPlayerIndex]) return; 
+            const lastPlayerName = lastPlayerIndex === 0 ? "You" : `AI ${lastPlayerIndex}`;
+            if (wasALie) {
+                setResolveMessage(`You called BS! It was a LIE! ${lastPlayerName} pick${lastPlayerIndex === 0 ? '' : 's'} up ${discardPile.length} cards.`);
+                allHands[lastPlayerIndex].push(...discardPile); sortHand(allHands[lastPlayerIndex]); allHands[lastPlayerIndex].forEach(resetCardAnimation); 
+            } else {
+                setResolveMessage(`You called BS! It was the TRUTH. You pick up ${discardPile.length} cards.`);
+                allHands[0].push(...discardPile); sortHand(allHands[0]); allHands[0].forEach(resetCardAnimation); 
+            }
+            discardPile = []; lastPlay = []; currentHoverCard = null; 
+            message = `Your turn. Play ${VALUES[currentRankIndex]}.`;
+        }
+        
+        function resetCardAnimation(card) {
+             if (!card) return; 
+            card.currentX = undefined; card.currentY = undefined; card.currentFanOffset = undefined;
+        }
+
+        function aiTurn() {
+            if (currentPlayerIndex === 0 || !allHands[currentPlayerIndex]) return; 
+            const currentAIHand = allHands[currentPlayerIndex]; const currentRank = VALUES[currentRankIndex];
+            if (lastPlay.length > 0) {
+                let callBS = false; const lastPlayerIndex = lastPlay[0]?.playerIndex; 
+                if (lastPlayerIndex === undefined || !allHands[lastPlayerIndex]) { console.error("Invalid lastPlay state"); advanceTurn(); return; }
+                const lastPlayerName = lastPlayerIndex === 0 ? "You" : `AI ${lastPlayerIndex}`; const cardsPlayerClaimed = lastPlay.length; const lastRankPlayed = lastPlay[0].claimedRank;
+                const aiHeldOfRank = currentAIHand.filter(c => c && c.value === lastRankPlayed).length; if (aiHeldOfRank + cardsPlayerClaimed > (4 * numDecks)) callBS = true;
+                if (cardsPlayerClaimed >= (3 * numDecks) && Math.random() > 0.4) callBS = true;
+                if (Math.random() > 0.85) callBS = true; 
+                if (allHands[lastPlayerIndex] && allHands[lastPlayerIndex].length === 0) callBS = true;
+                if (lastPlayerIndex === currentPlayerIndex) callBS = false;
+                if (callBS) {
+                    const wasALie = lastPlay.some(p => p && p.playerLied); 
+                    if (!allHands[lastPlayerIndex]) { console.error("Invalid lastPlayerIndex"); advanceTurn(); return; }
+                    if (wasALie) {
+                        setResolveMessage(`AI ${currentPlayerIndex} called BS on ${lastPlayerName}! It was a LIE! ${lastPlayerName} picks up.`);
+                        allHands[lastPlayerIndex].push(...discardPile); sortHand(allHands[lastPlayerIndex]); allHands[lastPlayerIndex].forEach(resetCardAnimation); 
+                    } else {
+                        setResolveMessage(`AI ${currentPlayerIndex} called BS on ${lastPlayerName}! It was the TRUTH. AI ${currentPlayerIndex} picks up.`);
+                        allHands[currentPlayerIndex].push(...discardPile); sortHand(allHands[currentPlayerIndex]); allHands[currentPlayerIndex].forEach(resetCardAnimation); 
+                    }
+                    discardPile = []; lastPlay = []; 
+                }
+            }
+            if (!allHands[currentPlayerIndex]) { console.error("AI hand missing"); advanceTurn(); return; }
+            const currentAIHandAfterBS = allHands[currentPlayerIndex]; 
+            const cardsToPlay = currentAIHandAfterBS.filter(c => c && c.value === currentRank); 
+            let cardsToPlayFromHand = []; let aiLied = false;
+            if (cardsToPlay.length > 0) {
+                const numToPlay = Math.random() > 0.5 ? 1 : Math.min(cardsToPlay.length, 2 * numDecks); cardsToPlayFromHand = cardsToPlay.slice(0, numToPlay);
+            } else {
+                 if (currentAIHandAfterBS.length === 0) { console.log(`AI ${currentPlayerIndex} no cards to lie.`); advanceTurn(); return; }
+                aiLied = true; const validHandCards = currentAIHandAfterBS.filter(c => c);
+                 if (validHandCards.length === 0) { console.log(`AI ${currentPlayerIndex} no valid cards to lie.`); advanceTurn(); return; }
+                const cardToLieWith = validHandCards.length > 5 ? validHandCards.reduce((p, c) => (p.rank < c.rank ? p : c)) : validHandCards.reduce((p, c) => (p.rank > c.rank ? p : c));
+                cardsToPlayFromHand.push(cardToLieWith);
+            }
+            allHands[currentPlayerIndex] = currentAIHandAfterBS.filter(card => !(card && cardsToPlayFromHand.includes(card))); 
+            lastPlay = [];
+            for (const card of cardsToPlayFromHand) {
+                 if (!card) continue; 
+                discardPile.push(card); lastPlay.push({ card: card, playerLied: aiLied, claimedRank: currentRank, playerIndex: currentPlayerIndex });
+            }
+            lastMessage = `AI ${currentPlayerIndex} played ${cardsToPlayFromHand.length} x ${currentRank}.`;
+            if (checkWin(currentPlayerIndex)) return;
+            currentRankIndex = (currentRankIndex + 1) % VALUES.length; advanceTurn();
+        }
+        
+        function checkWin(playerIndex) {
+            if (allHands[playerIndex] && allHands[playerIndex].length === 0) { 
+                gameState = 'GAME_OVER'; message = (playerIndex === 0 ? "YOU WIN!" : `AI ${playerIndex} WINS!`); return true;
+            } return false;
+        }
+        
+        function startGame() {
+            deck = []; allHands = []; discardPile = []; lastPlay = [];
+            currentRankIndex = 0; currentPlayerIndex = 0; message = "You start. Play your 'A's."; lastMessage = "";
+            gameState = 'PLAYING'; showResolveMessage = null; currentHoverCard = null; showQuitConfirmation = false; 
+            for(let i = 0; i < selectedAINum + 1; i++) allHands.push([]);
+            createAndShuffleDeck(); dealCards();
+        }
+
+        // --- Event Listeners ---
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect(); const mx = e.clientX - rect.left; const my = e.clientY - rect.top;
+            if (showQuitConfirmation) {
+                if (clickableAreas['quit_confirm'] && isMouseInRect(mx, my, clickableAreas['quit_confirm'].rect)) { showQuitConfirmation = false; gameState = 'START_MENU'; }
+                if (clickableAreas['quit_cancel'] && isMouseInRect(mx, my, clickableAreas['quit_cancel'].rect)) { showQuitConfirmation = false; }
+                return; 
+            }
+            if (gameState === 'GAME_OVER') { if (clickableAreas['restart'] && isMouseInRect(mx, my, clickableAreas['restart'].rect)) gameState = 'START_MENU'; return; }
+            if (gameState === 'START_MENU') {
+                if (clickableAreas['start_game'] && isMouseInRect(mx, my, clickableAreas['start_game'].rect)) startGame();
+                if (clickableAreas['settings'] && isMouseInRect(mx, my, clickableAreas['settings'].rect)) gameState = 'SETTINGS_MENU';
+                return;
+            }
+            if (gameState === 'SETTINGS_MENU') {
+                if (clickableAreas['back_to_menu'] && isMouseInRect(mx, my, clickableAreas['back_to_menu'].rect)) { gameState = 'START_MENU'; return; }
+                // AI Count
+                for (let i = 1; i <= 4; i++) { if (clickableAreas[`ai_${i}`] && isMouseInRect(mx, my, clickableAreas[`ai_${i}`].rect)) { selectedAINum = i; return; } }
+                // Deck Count
+                for (let i = 1; i <= 2; i++) { if (clickableAreas[`deck_${i}`] && isMouseInRect(mx, my, clickableAreas[`deck_${i}`].rect)) { numDecks = i; return; } }
+                // Table Color - Key updated
+                for (const name in tableColors) { if (clickableAreas[`tablecolor_${name}`] && isMouseInRect(mx, my, clickableAreas[`tablecolor_${name}`].rect)) { tableColor = tableColors[name]; createTablePattern(tableColor, selectedTableTexture); return; } } // Regenerate pattern
+                // Card Back Color - Key updated
+                for (const name in cardBackColors) { if (clickableAreas[`cardbackcolor_${name}`] && isMouseInRect(mx, my, clickableAreas[`cardbackcolor_${name}`].rect)) { cardBackColor = cardBackColors[name]; return; } }
+                
+                // --- UPDATED Click Handlers ---
+                // Table Texture
+                for (const name in tableTextures) { if (clickableAreas[`tabletexture_${name}`] && isMouseInRect(mx, my, clickableAreas[`tabletexture_${name}`].rect)) { selectedTableTexture = tableTextures[name]; createTablePattern(tableColor, selectedTableTexture); return; } } // Regenerate pattern
+                 // Card Back Pattern
+                 for (const name in cardBackPatterns) { if (clickableAreas[`cardbackpattern_${name}`] && isMouseInRect(mx, my, clickableAreas[`cardbackpattern_${name}`].rect)) { selectedCardBackPattern = cardBackPatterns[name]; return; } }
+                 // --- End UPDATED ---
+
+                return;
+            }
+            if (gameState !== 'PLAYING') return;
+            if (clickableAreas['quit'] && isMouseInRect(mx, my, clickableAreas['quit'].rect)) { showQuitConfirmation = true; return; }
+            if (currentPlayerIndex === 0) {
+                if (clickableAreas['play'] && isMouseInRect(mx, my, clickableAreas['play'].rect)) { handlePlayerPlay(); return; }
+                if (clickableAreas['bs'] && lastPlay.length > 0 && isMouseInRect(mx, my, clickableAreas['bs'].rect)) { handlePlayerCallBS(); return; }
+            }
+            const keys = Object.keys(clickableAreas).reverse();
+            for (const key of keys) {
+                if (key.startsWith('card_PLAYER_')) {
+                    const area = clickableAreas[key];
+                    if (area && area.card && isMouseInRect(mx, my, area.rect)) { area.card.selected = !area.card.selected; return; }
+                }
+            }
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect(); const mx = e.clientX - rect.left; const my = e.clientY - rect.top;
+            let newHoveredButton = null; let newHoveredCard = null; let cursor = 'default';
+            if (showQuitConfirmation) {
+                if (clickableAreas['quit_confirm'] && isMouseInRect(mx, my, clickableAreas['quit_confirm'].rect)) { newHoveredButton = 'quit_confirm'; cursor = 'pointer'; } 
+                else if (clickableAreas['quit_cancel'] && isMouseInRect(mx, my, clickableAreas['quit_cancel'].rect)) { newHoveredButton = 'quit_cancel'; cursor = 'pointer'; }
+                hoveredButtonKey = newHoveredButton; canvas.style.cursor = cursor; return; 
+            }
+            if (gameState === 'PLAYING') {
+                const keys = Object.keys(clickableAreas).reverse();
+                for (const key of keys) {
+                    if (key.startsWith('card_PLAYER_')) {
+                        const area = clickableAreas[key];
+                        if (area && area.card && isMouseInRect(mx, my, area.rect)) { newHoveredCard = area.card; cursor = 'pointer'; break; }
+                    }
+                }
+                if (!newHoveredCard) {
+                    if (clickableAreas['quit'] && isMouseInRect(mx, my, clickableAreas['quit'].rect)) { newHoveredButton = 'quit'; cursor = 'pointer'; }
+                    else if (currentPlayerIndex === 0) { 
+                        if (clickableAreas['play'] && isMouseInRect(mx, my, clickableAreas['play'].rect)) { newHoveredButton = 'play'; cursor = 'pointer'; } 
+                        else if (clickableAreas['bs'] && lastPlay.length > 0 && isMouseInRect(mx, my, clickableAreas['bs'].rect) ) { newHoveredButton = 'bs'; cursor = 'pointer'; }
+                    }
+                }
+            } else if (gameState === 'START_MENU' || gameState === 'SETTINGS_MENU' || gameState === 'GAME_OVER') {
+                const keys = Object.keys(clickableAreas);
+                for (const key of keys) {
+                    if (!key.startsWith('card_')) {
+                        const area = clickableAreas[key];
+                        if (area && area.rect && isMouseInRect(mx, my, area.rect)) { newHoveredButton = key; cursor = 'pointer'; break; }
+                    }
+                }
+            }
+            canvas.style.cursor = cursor;
+            if (newHoveredCard && newHoveredCard !== currentHoverCard) { if (currentHoverCard) currentHoverCard.isHovered = false; newHoveredCard.isHovered = true; currentHoverCard = newHoveredCard; } 
+            else if (!newHoveredCard && currentHoverCard) { currentHoverCard.isHovered = false; currentHoverCard = null; }
+            hoveredButtonKey = newHoveredButton;
+            if (newHoveredButton && currentHoverCard) { currentHoverCard.isHovered = false; currentHoverCard = null; }
+        });
+        
+        canvas.addEventListener('mouseleave', () => {
+            if (currentHoverCard) { currentHoverCard.isHovered = false; currentHoverCard = null; }
+            hoveredButtonKey = null; canvas.style.cursor = 'default';
+        });
+
+        // --- Start Game ---
+        createTablePattern(tableColor, selectedTableTexture); // Use new function and setting
+        gameLoop();
+
+    </script>
+</body>
+</html>
+

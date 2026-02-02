@@ -1,800 +1,1104 @@
 <!DOCTYPE html>
-<!-- Moved bg-gray-900 to html tag -->
-<html lang="en" class="h-full bg-gray-900">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Liar's Table</title>
-    <!-- Load Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Load Inter font -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@400;700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
     <style>
-        html, body {
-            height: 100%;
-            margin: 0;
-            overflow: hidden; /* Prevent page scrolling */
-        }
+        /* Custom Styling */
         body {
+            background-color: #3e2723; /* Wood Border Color */
+            color: #e0e0e0;
             font-family: 'Inter', sans-serif;
+            overflow: hidden;
+            user-select: none;
+            height: 100vh;
+            width: 100vw;
+            padding: 16px; /* Width of the wood border */
+            box-sizing: border-box;
         }
-        .player-hand {
-            display: flex;
-            justify-content: center;
-            align-items: flex-end; /* Puts cards at the bottom of the div */
-            gap: 3px;
-            margin-top: 2px; /* Adjusted margin */
-            height: 140px;
-            /* ADDING THIS TO HELP DEBUG */
-            border: 2px dashed red;
+
+        .crimson { font-family: 'Crimson Pro', serif; }
+
+        /* Felt Table Texture */
+        .table-felt {
             width: 100%;
-            padding: 4px;
+            height: 100%;
+            /* Default Grey - Overridden by JS */
+            background-color: #2a2a2a; 
+            background-image: url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%231a1a1a' fill-opacity='0.4' fill-rule='evenodd'%3E%3Cpath d='M0 38.59l2.83-2.83 1.41 1.41L1.41 40H0v-1.41zM0 1.4l2.83 2.83 1.41-1.41L1.41 0H0v1.41zM38.59 40l-2.83-2.83 1.41-1.41L40 38.59V40h-1.41zM40 1.41l-2.83 2.83-1.41-1.41L38.59 0H40v1.41zM20 18.6l2.83-2.83 1.41 1.41L21.41 20l2.83 2.83-1.41 1.41L20 21.41l-2.83 2.83-1.41-1.41L18.59 20l-2.83-2.83 1.41-1.41L20 18.59z'/%3E%3C/g%3E%3C/svg%3E");
+            box-shadow: inset 0 0 150px rgba(0,0,0,0.9);
+            border-radius: 24px;
+            border: 2px solid rgba(0,0,0,0.3);
+            position: relative;
+            display: grid;
+            grid-template-rows: 1fr 2fr 1.5fr; /* Divide space: Opponents, Table, Player */
+            transition: background-color 0.5s ease;
         }
-        .player-hand .card {
-            transition: all .2s ease-in-out;
-        }
-        .player-hand .card:hover {
-            transform: translateY(-10px) scale(1.05);
-            z-index: 10;
-        }
-        .player-hand .card.selected {
-            transform: translateY(-20px) scale(1.1);
-            box-shadow: 0 0 15px 5px #22d3ee; /* Was theme('colors.cyan.400') */
-            border-color: #22d3ee; /* Was theme('colors.cyan.400') */
-            z-index: 20;
-        }
+
+        /* Card Styling */
         .card {
             width: 80px;
-            height: 120px;
-            border: 2px solid #4b5563; /* Was theme('colors.gray.600') */
-            background-color: #1f2937; /* Was theme('colors.gray.800') */
+            height: 112px;
+            background-color: #f5f5f5;
             border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
             display: flex;
-            align-items: center;
+            flex-direction: column;
             justify-content: center;
+            align-items: center;
+            position: relative;
+            transition: transform 0.2s, margin-top 0.2s;
+            cursor: pointer;
+            border: 1px solid #ccc;
+        }
+        
+        @media (min-width: 768px) {
+            .card { width: 90px; height: 126px; }
+        }
+
+        .card:hover { transform: translateY(-15px); z-index: 10; }
+        .card.selected { transform: translateY(-30px); border: 3px solid #fbbf24; box-shadow: 0 0 20px #fbbf24; z-index: 20; }
+        .card.disabled { filter: brightness(0.5); pointer-events: none; }
+
+        .card-back {
+            background: #8b0000;
+            background-image: repeating-linear-gradient(45deg, #600000 0, #600000 10px, #8b0000 10px, #8b0000 20px);
+            border: 2px solid #fff;
+        }
+
+        /* Revealed Card Styling */
+        .card.revealed {
+            z-index: 100;
+            transition: transform 0.5s ease;
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.5);
+        }
+
+        .card-suit { font-size: 2rem; }
+        .card-val { font-weight: bold; font-size: 1.2rem; position: absolute; top: 4px; left: 4px; }
+        .card-val-bottom { font-weight: bold; font-size: 1.2rem; position: absolute; bottom: 4px; right: 4px; transform: rotate(180deg); }
+
+        .red { color: #d32f2f; }
+        .black { color: #212121; }
+        .joker-text { color: #6a1b9a; }
+
+        /* Gun Chamber Visual */
+        .chamber-dot { 
+            width: 10px; 
+            height: 10px; 
+            border-radius: 50%; 
+            background: #1a1a1a; 
+            border: 1px solid #444; 
+            transition: all 0.3s;
+        }
+        .chamber-dot.spent { 
+            background: #b91c1c; /* Red for Spent/Blank Fired */
+            border-color: #ef4444;
+            box-shadow: 0 0 6px #b91c1c; 
+        }
+
+        @keyframes popIn {
+            0% { transform: translate(-50%, -60%) scale(0.8); opacity: 0; }
+            100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+        }
+        .pop-in { animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+
+        /* Modal */
+        .modal-overlay { background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(5px); }
+        
+        /* Avatar */
+        .avatar {
+            width: 60px; height: 60px; border-radius: 50%;
+            border: 4px solid #444; background: #222;
+            display: flex; justify-content: center; align-items: center;
+            font-weight: bold; color: #fff;
+            position: relative;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+        }
+        .avatar.active { 
+            border-color: #fbbf24; 
+            box-shadow: 0 0 25px rgba(251, 191, 36, 0.6); 
+            transform: scale(1.1);
+        }
+        .avatar.eliminated { opacity: 0.5; filter: grayscale(1); border-color: #d32f2f; }
+        .avatar.eliminated::after {
+            content: "☠"; font-size: 2rem; position: absolute; color: red;
+        }
+
+        /* Pile Stack */
+        .pile-card {
+            position: absolute;
+            transition: all 0.5s cubic-bezier(0.25, 0.8, 0.25, 1);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        }
+
+        /* Announcement Banner */
+        .announcement {
+            position: absolute;
+            top: 50%; /* Center Vertically in Middle Row */
+            left: 20%; /* Move to Left Center */
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.9);
+            padding: 20px 40px;
+            border-radius: 12px;
+            border: 2px solid #fbbf24;
+            color: #fbbf24;
             font-size: 2rem;
             font-weight: bold;
-            color: white;
-            cursor: pointer;
-            user-select: none;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.4);
+            font-family: 'Crimson Pro', serif;
+            z-index: 50;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s;
+            text-align: center;
+            box-shadow: 0 0 50px rgba(0,0,0,0.8);
+            min-width: 300px;
         }
-        .card-back {
-            background-color: #1e40af; /* Was theme('colors.blue.800') */
-            background-image: linear-gradient(135deg, #1d4ed8 25%, transparent 25%), 
-                              linear-gradient(225deg, #1d4ed8 25%, transparent 25%), 
-                              linear-gradient(45deg, #1d4ed8 25%, transparent 25%), 
-                              linear-gradient(315deg, #1d4ed8 25%, #1e40af 25%); /* Was theme('colors.blue.700') & theme('colors.blue.800') */
-            background-position: 10px 0, 10px 0, 0 0, 0 0;
-            background-size: 20px 20px;
-            background-repeat: repeat;
+        .announcement.visible { opacity: 1; }
+        .announcement span { display: block; font-size: 1rem; color: #fff; font-family: 'Inter', sans-serif; margin-top: 5px; }
+
+        /* Turn Indicator Pill */
+        .turn-pill {
+            background: rgba(0,0,0,0.6);
+            padding: 4px 12px;
+            border-radius: 50px;
+            font-weight: bold;
+            border: 1px solid rgba(255,255,255,0.1);
+            transition: all 0.3s;
+            font-size: 0.7rem;
+            position: absolute;
+            top: -25px; /* Move above avatar */
+            white-space: nowrap;
         }
-        .card-value {
-            line-height: 1;
+        .turn-pill.active {
+            background: rgba(251, 191, 36, 0.2);
+            border-color: #fbbf24;
+            color: #fbbf24;
         }
-        .player-zone {
-            transition: all 0.3s ease;
-            border-width: 4px;
+
+        /* Pulse Animation for Text */
+        @keyframes pulse-red {
+            0% { text-shadow: 0 0 10px red; transform: scale(1); }
+            50% { text-shadow: 0 0 30px red; transform: scale(1.1); }
+            100% { text-shadow: 0 0 10px red; transform: scale(1); }
         }
-        .player-zone.active {
-            border-color: #facc15; /* Was theme('colors.yellow.400') */
-            box-shadow: 0 0 20px #facc15; /* Was theme('colors.yellow.400') */
-        }
-        .lives {
-            display: flex;
-            gap: 4px;
-        }
-        .life {
-            width: 16px;
-            height: 16px;
-            border-radius: 50%;
-            background-color: #ef4444; /* Was theme('colors.red.500') */
-            box-shadow: 0 0 5px #ef4444; /* Was theme('colors.red.500') */
-        }
-        .life.lost {
-            background-color: #374151; /* Was theme('colors.gray.700') */
-            box-shadow: none;
-        }
-        .message-box {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            z-index: 100;
-        }
-        .log-panel {
-            height: 100px; /* Reduced log panel height */
-            overflow-y: auto;
-        }
+        .text-pulse-red { animation: pulse-red 1s infinite; }
+
+        /* Menu Theme Transition */
+        #main-menu { transition: background-color 0.5s ease; }
+
     </style>
 </head>
-<!-- Removed flex, items-center, justify-center, p-4, and overflow:hidden from body -->
-<body class="h-full text-white">
+<body>
 
-    <!-- 
-      - Grid now takes up h-full (h-screen)
-      - Added p-4 for padding (moved from body)
-      - Added max-w-7xl and mx-auto to center horizontally 
-    -->
-    <div class="grid grid-cols-3 grid-rows-[auto_1fr_auto] w-full h-full max-w-7xl mx-auto gap-4 p-4">
+    <!-- Main Menu -->
+    <div id="main-menu" class="absolute inset-0 z-50 flex flex-col items-center justify-center text-center table-felt">
+        <h1 class="text-7xl crimson text-red-600 mb-2 tracking-wider drop-shadow-lg" style="text-shadow: 0 0 30px rgba(220, 38, 38, 0.6);">LIAR'S TABLE</h1>
+        <p class="text-gray-400 mb-12 text-xl">Deception. High Stakes. Survival.</p>
         
-        <!-- Player 2 (Top) -->
-        <div class="col-start-2 flex flex-col items-center justify-center pt-4"> <!-- Added pt-4 -->
-            <div id="player-zone-2" class="player-zone border-4 border-transparent rounded-lg p-4 bg-gray-800 shadow-lg w-64">
-                <h3 class="text-xl font-bold text-center">Player 2</h3>
-                <div id="lives-2" class="lives justify-center my-2"></div>
-                <div class="flex justify-center items-center gap-2">
-                    <div class="card-back w-12 h-20"></div>
-                    <span class="text-3xl font-bold">x <span id="card-count-2">0</span></span>
+        <div class="space-y-4 w-72">
+            <button onclick="startGame()" class="w-full py-4 bg-red-800 hover:bg-red-700 text-white rounded text-xl font-bold shadow-lg transition transform hover:scale-105">PLAY</button>
+            <button onclick="toggleSettings()" class="w-full py-4 bg-zinc-700 hover:bg-zinc-600 text-white rounded text-xl font-bold shadow-lg transition">SETTINGS</button>
+        </div>
+        
+        <div class="mt-12 text-sm text-zinc-500 max-w-lg leading-relaxed">
+            Rules: A "Table Type" (e.g., King) is chosen.<br>
+            Play 1-3 cards face down claiming they match the Table Type.<br> 
+            Others can call "LIAR". The loser of the challenge plays Russian Roulette.<br>
+            <span class="text-red-500 font-bold">Survivors fill their chambers.</span>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="hidden absolute inset-0 z-50 flex items-center justify-center modal-overlay">
+        <div class="bg-zinc-800 p-8 rounded-lg shadow-2xl w-96 border border-zinc-700">
+            <h2 class="text-2xl font-bold mb-6 text-white text-center">Settings</h2>
+            
+            <!-- Variant Buttons -->
+            <div class="mb-6">
+                <label class="block text-gray-400 mb-2 text-sm uppercase tracking-wide">Variant</label>
+                <div class="flex space-x-2" id="setting-variant">
+                    <button onclick="setSetting('variant', 'standard')" class="flex-1 py-3 rounded font-bold transition border border-transparent" data-value="standard">Standard</button>
+                    <button onclick="setSetting('variant', 'devil')" class="flex-1 py-3 rounded font-bold transition border border-transparent" data-value="devil">Devil Mode</button>
                 </div>
-                <p id="status-2" class="text-center text-yellow-400 h-6 mt-2"></p>
+            </div>
+
+            <!-- Table Color Buttons (Swatches) -->
+            <div class="mb-6">
+                <label class="block text-gray-400 mb-2 text-sm uppercase tracking-wide">Table Color</label>
+                <div class="grid grid-cols-5 gap-2" id="setting-color">
+                    <button onclick="setSetting('tableColor', 'green')" class="h-10 rounded border-2 transition bg-[#2d4f32]" data-value="green" title="Green"></button>
+                    <button onclick="setSetting('tableColor', 'red')" class="h-10 rounded border-2 transition bg-[#5c1a1a]" data-value="red" title="Red"></button>
+                    <button onclick="setSetting('tableColor', 'blue')" class="h-10 rounded border-2 transition bg-[#1a2f5c]" data-value="blue" title="Blue"></button>
+                    <button onclick="setSetting('tableColor', 'purple')" class="h-10 rounded border-2 transition bg-[#3a1a5c]" data-value="purple" title="Purple"></button>
+                    <button onclick="setSetting('tableColor', 'grey')" class="h-10 rounded border-2 transition bg-[#2a2a2a]" data-value="grey" title="Grey"></button>
+                </div>
+            </div>
+
+            <!-- Player Count Buttons -->
+            <div class="mb-6">
+                <label class="block text-gray-400 mb-2 text-sm uppercase tracking-wide">Player Count</label>
+                <div class="flex space-x-2" id="setting-players">
+                    <button onclick="setSetting('playerCount', 2)" class="flex-1 py-3 rounded font-bold transition border border-transparent" data-value="2">2</button>
+                    <button onclick="setSetting('playerCount', 3)" class="flex-1 py-3 rounded font-bold transition border border-transparent" data-value="3">3</button>
+                    <button onclick="setSetting('playerCount', 4)" class="flex-1 py-3 rounded font-bold transition border border-transparent" data-value="4">4</button>
+                </div>
+            </div>
+
+            <button onclick="toggleSettings()" class="w-full py-3 bg-zinc-600 hover:bg-zinc-500 text-white rounded font-bold transition">BACK</button>
+        </div>
+    </div>
+
+    <!-- Game Over Screen -->
+    <div id="game-over-screen" class="hidden absolute inset-0 z-50 flex flex-col items-center justify-center bg-black bg-opacity-95">
+        <h2 id="game-over-title" class="text-6xl crimson text-white mb-4">YOU DIED</h2>
+        <p id="game-over-reason" class="text-xl text-gray-400 mb-10">Fate caught up with you.</p>
+        <button onclick="returnToMenu()" class="px-10 py-4 bg-white text-black font-bold text-lg rounded hover:bg-gray-200 transition">MAIN MENU</button>
+    </div>
+
+    <!-- Main Game Area (The Felt Table) -->
+    <div id="game-area" class="table-felt hidden">
+        
+        <!-- Menu Button (Top Right) -->
+        <div class="absolute top-6 right-6 z-50">
+            <button onclick="returnToMenu()" class="bg-zinc-800 hover:bg-zinc-700 text-white font-bold py-2 px-4 rounded border border-zinc-600 transition shadow-lg text-sm tracking-widest">
+                MENU
+            </button>
+        </div>
+
+        <!-- TOP ROW: Opponents & Info -->
+        <div class="relative w-full h-full">
+            
+            <!-- Table Info Card (Absolute Top Left) -->
+            <div class="absolute top-6 left-6 w-48 bg-black/60 p-4 rounded-xl border border-white/10 shadow-lg backdrop-blur-sm z-10">
+                <div class="text-xs uppercase tracking-widest text-gray-400 mb-1">Current Table</div>
+                <div id="table-type-display" class="text-4xl font-bold crimson text-yellow-500 leading-none">KINGS</div>
+                <div class="text-xs text-gray-500 mt-2 pt-2 border-t border-white/10" id="deck-count">Deck: 20</div>
+            </div>
+
+            <!-- Opponents Container (Centered on Screen Width) -->
+            <div class="w-full flex justify-center items-start space-x-12 pt-12">
+                <!-- Opponent 1 (P2) -->
+                <div id="player-1" class="flex flex-col items-center space-y-1 relative transition-opacity duration-500">
+                    <div class="turn-pill opacity-0" id="pill-1">TURN</div>
+                    <div class="avatar" id="avatar-1">P2</div>
+                    <!-- Chamber Notches -->
+                    <div class="flex space-x-1 mt-2 bg-black/40 p-1.5 rounded-lg border border-white/10" id="chamber-1"></div>
+                    <div class="text-xs text-gray-400 font-mono mt-1"><span id="cards-1">5</span> Cards</div>
+                </div>
+                
+                <!-- Opponent 2 (P3) -->
+                <div id="player-2" class="flex flex-col items-center space-y-1 relative transition-opacity duration-500">
+                    <div class="turn-pill opacity-0" id="pill-2">TURN</div>
+                    <div class="avatar" id="avatar-2">P3</div>
+                    <!-- Chamber Notches -->
+                    <div class="flex space-x-1 mt-2 bg-black/40 p-1.5 rounded-lg border border-white/10" id="chamber-2"></div>
+                    <div class="text-xs text-gray-400 font-mono mt-1"><span id="cards-2">5</span> Cards</div>
+                </div>
+
+                <!-- Opponent 3 (P4) -->
+                <div id="player-3" class="flex flex-col items-center space-y-1 relative transition-opacity duration-500">
+                    <div class="turn-pill opacity-0" id="pill-3">TURN</div>
+                    <div class="avatar" id="avatar-3">P4</div>
+                    <!-- Chamber Notches -->
+                    <div class="flex space-x-1 mt-2 bg-black/40 p-1.5 rounded-lg border border-white/10" id="chamber-3"></div>
+                    <div class="text-xs text-gray-400 font-mono mt-1"><span id="cards-3">5</span> Cards</div>
+                </div>
+            </div>
+            
+        </div>
+
+        <!-- MIDDLE ROW: The Pile -->
+        <div class="relative w-full flex justify-center items-center h-full">
+            
+            <!-- Center Pile -->
+            <div id="card-pile" class="w-48 h-64 border-4 border-dashed border-white/10 rounded-xl flex items-center justify-center relative bg-white/5 backdrop-blur-sm transition-all duration-300">
+                <span class="text-white/10 font-bold uppercase tracking-widest pointer-events-none select-none">Pile</span>
+                <!-- Played cards will animate here -->
+            </div>
+            
+            <!-- Central Announcement Overlay (Moved Left) -->
+            <div id="announcement-overlay" class="announcement">
+                <div id="announce-main">LIAR!</div>
+                <span id="announce-sub">Bot 1 challenges Bot 2</span>
             </div>
         </div>
 
-        <!-- Player 1 (Left) -->
-        <div class="row-start-2 flex flex-col items-center justify-center">
-            <div id="player-zone-1" class="player-zone border-4 border-transparent rounded-lg p-4 bg-gray-800 shadow-lg w-64">
-                <h3 class="text-xl font-bold text-center">Player 1</h3>
-                <div id="lives-1" class="lives justify-center my-2"></div>
-                <div class="flex justify-center items-center gap-2">
-                    <div class="card-back w-12 h-20"></div>
-                    <span class="text-3xl font-bold">x <span id="card-count-1">0</span></span>
-                </div>
-                <p id="status-1" class="text-center text-yellow-400 h-6 mt-2"></p>
+        <!-- Game Log (Moved to Bottom Right) -->
+        <div class="absolute bottom-44 right-6 z-30 w-64 pointer-events-none">
+            <div class="text-xs text-gray-400 mb-1 uppercase tracking-wider text-right">Game Log</div>
+            <div id="game-log" class="text-sm text-white/90 font-mono bg-black/60 p-3 rounded-lg h-32 overflow-y-auto shadow-inner border border-white/5 scrollbar-thin pointer-events-auto">
+                <!-- Logs go here -->
             </div>
         </div>
 
-        <!-- Center Pile (Middle) -->
-        <div class="row-start-2 col-start-2 flex flex-col items-center justify-center gap-4">
-            <div class="text-center">
-                <p class="text-lg text-gray-400">Table Card</p>
-                <div id="table-card-display" class="card w-24 h-36 text-5xl bg-gray-700">?</div>
-            </div>
-            <div class="text-center">
-                <p class="text-lg text-gray-400">Cards in Pile</p>
-                <div class="w-24 h-36 rounded-lg bg-gray-700 flex items-center justify-center text-5xl font-bold" id="center-pile-count">0</div>
-            </div>
-        </div>
-
-        <!-- Player 3 (Right) -->
-        <div class="row-start-2 col-start-3 flex flex-col items-center justify-center">
-            <div id="player-zone-3" class="player-zone border-4 border-transparent rounded-lg p-4 bg-gray-800 shadow-lg w-64">
-                <h3 class="text-xl font-bold text-center">Player 3</h3>
-                <div id="lives-3" class="lives justify-center my-2"></div>
-                <div class="flex justify-center items-center gap-2">
-                    <div class="card-back w-12 h-20"></div>
-                    <span class="text-3xl font-bold">x <span id="card-count-3">0</span></span>
-                </div>
-                <p id="status-3" class="text-center text-yellow-400 h-6 mt-2"></p>
-            </div>
-        </div>
-
-        <!-- Player 0 (Human) (Bottom) -->
-        <div class="col-span-3 row-start-3 flex flex-col items-center pb-4"> <!-- Added pb-4 -->
-            <div id="player-zone-0" class="player-zone border-4 border-transparent rounded-lg p-4 bg-gray-800 shadow-lg w-full max-w-3xl">
-                <div class="flex justify-between items-center">
-                    <div class="w-1/3">
-                        <h3 id="player-name" class="text-2xl font-bold">Main</h3>
-                        <div id="lives-0" class="lives my-2"></div>
-                        <p id="status-0" class="text-yellow-400 h-6"></p>
-                    </div>
-                    <div class="w-1/3 flex justify-center gap-4">
-                        <button id="play-button" class="px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded-lg text-xl font-bold shadow-lg transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed">
-                            Play Cards
-                        </button>
-                        <button id="liar-button" class="px-6 py-3 bg-red-600 hover:bg-red-700 rounded-lg text-xl font-bold shadow-lg transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed">
-                            Call Liar!
-                        </button>
-                    </div>
-                    <div class="w-1/3 flex justify-end">
-                        <div class="bg-gray-700 p-3 rounded-lg shadow-inner w-64">
-                            <h4 class="text-sm font-bold border-b border-gray-600 mb-2">Game Log</h4>
-                            <!-- NOTE: Log panel height was reduced in CSS -->
-                            <div id="game-log" class="log-panel text-sm text-gray-300"></div>
-                        </div>
-                    </div>
+        <!-- BOTTOM ROW: Player Area -->
+        <div class="flex flex-col justify-end pb-8 relative z-20 px-8">
+            
+            <!-- Player Hand and Controls Container -->
+            <div class="flex justify-center items-end w-full mb-4 relative">
+                
+                <!-- Player Stats (Left of Hand) - P1 Avatar -->
+                <div class="flex flex-col items-center mr-8 mb-4 z-30">
+                    <div class="avatar" id="avatar-0">P1</div>
+                     <div class="flex space-x-1 mt-2 bg-black/40 p-1.5 rounded-lg border border-white/10" id="player-chamber-0">
+                        <!-- JS injected notches -->
+                     </div>
                 </div>
 
-                <!-- Player Hand -->
-                <p class="text-center text-gray-400 text-sm mt-2">Click on your cards below to select them.</p>
-                <div id="player-hand" class="player-hand flex justify-center gap-3 h-[140px]">
-                    <!-- Player cards will be inserted here -->
+                <!-- Player Hand (Centered) -->
+                <div id="player-hand" class="flex justify-center items-end -space-x-4 h-36 relative z-10">
+                    <!-- Cards injected here -->
                 </div>
+
+                <!-- Action Buttons (To the Right of Hand) -->
+                <div id="action-bar" class="flex flex-col space-y-3 ml-8 mb-2 z-30">
+                    <button id="btn-play" onclick="playSelectedCards()" class="bg-green-700 hover:bg-green-600 text-white font-bold py-3 px-6 rounded-lg shadow-xl disabled:opacity-30 disabled:cursor-not-allowed transition transform hover:scale-105 border-2 border-green-500/50 text-sm tracking-wider">
+                        PLAY
+                    </button>
+                    <button id="btn-liar" onclick="callLiar()" class="bg-red-800 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg shadow-xl disabled:opacity-30 disabled:cursor-not-allowed transition transform hover:scale-105 border-2 border-red-500/50 text-sm tracking-wider">
+                        LIAR!
+                    </button>
+                </div>
+
             </div>
+            
+            <div class="text-center text-gray-500 text-sm opacity-50">
+                 Select 1-3 cards matching the Table Type.
+            </div>
+            
         </div>
 
     </div>
-    
-    <!-- Message Box -->
-    <div id="message-box" class="message-box hidden bg-gray-700 border-4 border-cyan-700 rounded-lg p-8 shadow-2xl text-center z-50">
-        <h2 id="message-title" class="text-3xl font-bold mb-4"></h2>
-        <p id="message-text" class="text-lg mb-6"></p>
-        <div id="message-revealed-cards" class="flex justify-center gap-3 mb-6"></div>
-        <button id="message-ok-button" class="px-6 py-3 bg-cyan-700 hover:bg-cyan-800 rounded-lg text-xl font-bold shadow-lg transition duration-200">
-            Next Round
-        </button>
+
+    <!-- Simple Roulette Overlay -->
+    <div id="roulette-overlay" class="hidden absolute inset-0 z-50 flex items-center justify-center bg-black bg-opacity-95">
+        <div class="text-center w-full">
+            <h2 id="roulette-header" class="text-4xl text-gray-400 mb-12 crimson tracking-widest uppercase">Russian Roulette</h2>
+            
+            <!-- Huge text display for result -->
+            <div id="roulette-result" class="text-9xl font-black crimson transition-all duration-200">
+                ...
+            </div>
+            
+            <p id="roulette-sub" class="text-xl text-gray-500 mt-8 font-mono">Pulling the trigger...</p>
+        </div>
     </div>
 
     <script>
-        document.addEventListener('DOMContentLoaded', () => {
+        /* --- GAME ENGINE --- */
 
-            // --- DOM Elements ---
-            const playerZones = [
-                document.getElementById('player-zone-0'),
-                document.getElementById('player-zone-1'),
-                document.getElementById('player-zone-2'),
-                document.getElementById('player-zone-3')
-            ];
-            const playerLives = [
-                document.getElementById('lives-0'),
-                document.getElementById('lives-1'),
-                document.getElementById('lives-2'),
-                document.getElementById('lives-3')
-            ];
-            const playerCardCounts = [
-                null, // Player 0 has a visible hand
-                document.getElementById('card-count-1'),
-                document.getElementById('card-count-2'),
-                document.getElementById('card-count-3')
-            ];
-            const playerStatuses = [
-                document.getElementById('status-0'),
-                document.getElementById('status-1'),
-                document.getElementById('status-2'),
-                document.getElementById('status-3')
-            ];
-            const playerHandElement = document.getElementById('player-hand');
-            const playButton = document.getElementById('play-button');
-            const liarButton = document.getElementById('liar-button');
-            const tableCardDisplay = document.getElementById('table-card-display');
-            const centerPileCount = document.getElementById('center-pile-count');
-            const gameLog = document.getElementById('game-log');
+        const SUITS = ['♠', '♥', '♣', '♦'];
+        const RANKS = ['Q', 'K', 'A']; 
+        const JOKER = 'JOKER';
+        const DEVIL = 'DEVIL';
+
+        // Color Themes Configuration
+        const themes = {
+            green: { bg: '#2d4f32', pattern: '%231f3a23' },
+            red: { bg: '#5c1a1a', pattern: '%233a0f0f' },
+            blue: { bg: '#1a2f5c', pattern: '%230f1a3a' },
+            purple: { bg: '#3a1a5c', pattern: '%23230f3a' },
+            grey: { bg: '#2a2a2a', pattern: '%231a1a1a' }
+        };
+
+        // Persistent Settings State
+        let settingsState = {
+            variant: 'standard',
+            tableColor: 'grey', // Default
+            playerCount: 4
+        };
+
+        let gameState = {
+            players: [], 
+            currentPlayerIndex: 0,
+            tableType: null,
+            pile: [],
+            lastPlay: null,
+            deck: [],
+            variant: 'standard',
+            playerCount: 4,
+            isRoundOver: false
+        };
+
+        const els = {
+            menu: document.getElementById('main-menu'),
+            gameArea: document.getElementById('game-area'),
+            settings: document.getElementById('settings-modal'),
+            playerHand: document.getElementById('player-hand'),
+            tableTypeDisplay: document.getElementById('table-type-display'),
+            pile: document.getElementById('card-pile'),
+            btnPlay: document.getElementById('btn-play'),
+            btnLiar: document.getElementById('btn-liar'),
+            log: document.getElementById('game-log'),
+            roulette: document.getElementById('roulette-overlay'),
+            rouletteResult: document.getElementById('roulette-result'),
+            rouletteSub: document.getElementById('roulette-sub'),
+            gameOver: document.getElementById('game-over-screen'),
+            gameOverTitle: document.getElementById('game-over-title'),
+            gameOverReason: document.getElementById('game-over-reason'),
+            announcement: document.getElementById('announcement-overlay'),
+            announceMain: document.getElementById('announce-main'),
+            announceSub: document.getElementById('announce-sub')
+        };
+
+        /* --- SETUP --- */
+
+        function toggleSettings() {
+            els.settings.classList.toggle('hidden');
+            if (!els.settings.classList.contains('hidden')) {
+                updateSettingsUI();
+            }
+        }
+
+        // Handle Setting Changes
+        function setSetting(key, value) {
+            settingsState[key] = value;
+            updateSettingsUI();
             
-            // Message Box Elements
-            const messageBox = document.getElementById('message-box');
-            const messageTitle = document.getElementById('message-title');
-            const messageText = document.getElementById('message-text');
-            const messageRevealedCards = document.getElementById('message-revealed-cards');
-            const messageOkButton = document.getElementById('message-ok-button');
+            if (key === 'tableColor') {
+                updateTableTheme();
+            }
+        }
 
-            // Prompt for human player's name
-            let playerName = prompt("Enter your name:", "") || "";
-            const playerNameEl = document.getElementById('player-name');
-            if (playerNameEl) playerNameEl.textContent = playerName;
+        function updateSettingsUI() {
+            // Update Variant Buttons
+            document.querySelectorAll('#setting-variant button').forEach(btn => {
+                if(btn.dataset.value === settingsState.variant) {
+                    btn.className = "flex-1 py-3 rounded font-bold transition bg-red-600 text-white border border-red-500 shadow-lg";
+                } else {
+                    btn.className = "flex-1 py-3 rounded font-bold transition bg-zinc-700 text-gray-400 hover:bg-zinc-600 border border-transparent";
+                }
+            });
 
-            // --- Game Constants ---
-            const CARD_TYPES = ['K', 'Q', 'J'];
-            const CARDS_PER_TYPE = 6;
-            const STARTING_LIVES = 5;
-            const NUM_PLAYERS = 4;
-            const STARTING_HAND_SIZE = 5;
+            // Update Player Count Buttons
+            document.querySelectorAll('#setting-players button').forEach(btn => {
+                if(parseInt(btn.dataset.value) === settingsState.playerCount) {
+                    btn.className = "flex-1 py-3 rounded font-bold transition bg-red-600 text-white border border-red-500 shadow-lg";
+                } else {
+                    btn.className = "flex-1 py-3 rounded font-bold transition bg-zinc-700 text-gray-400 hover:bg-zinc-600 border border-transparent";
+                }
+            });
 
-            // --- Game State ---
+            // Update Color Swatches
+            document.querySelectorAll('#setting-color button').forEach(btn => {
+                if(btn.dataset.value === settingsState.tableColor) {
+                    btn.classList.add('border-white', 'scale-110', 'shadow-md');
+                    btn.classList.remove('border-transparent');
+                } else {
+                    btn.classList.remove('border-white', 'scale-110', 'shadow-md');
+                    btn.classList.add('border-transparent');
+                }
+            });
+        }
+
+        function updateTableTheme() {
+            const color = settingsState.tableColor;
+            const theme = themes[color];
+            
+            // Generate SVG with new color
+            const svgBase = `data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='${theme.pattern}' fill-opacity='0.4' fill-rule='evenodd'%3E%3Cpath d='M0 38.59l2.83-2.83 1.41 1.41L1.41 40H0v-1.41zM0 1.4l2.83 2.83 1.41-1.41L1.41 0H0v1.41zM38.59 40l-2.83-2.83 1.41-1.41L40 38.59V40h-1.41zM40 1.41l-2.83 2.83-1.41-1.41L38.59 0H40v1.41zM20 18.6l2.83-2.83 1.41 1.41L21.41 20l2.83 2.83-1.41 1.41L20 21.41l-2.83 2.83-1.41-1.41L18.59 20l-2.83-2.83 1.41-1.41L20 18.59z'/%3E%3C/g%3E%3C/svg%3E`;
+
+            // Apply to Game Area
+            const gameArea = document.getElementById('game-area');
+            gameArea.style.backgroundColor = theme.bg;
+            gameArea.style.backgroundImage = `url("${svgBase}")`;
+
+            // Apply to Main Menu
+            const menu = document.getElementById('main-menu');
+            menu.style.backgroundColor = theme.bg;
+            menu.style.backgroundImage = `url("${svgBase}")`;
+        }
+
+        function returnToMenu() {
+            // Hide Game Elements
+            els.gameArea.classList.add('hidden');
+            els.gameOver.classList.add('hidden');
+            els.roulette.classList.add('hidden');
+            
+            // Clear visual state to prevent glitches on restart
+            els.playerHand.innerHTML = "";
+            els.pile.innerHTML = '<span class="text-white/10 font-bold uppercase tracking-widest pointer-events-none select-none">Pile</span>';
+            els.log.innerHTML = "";
+
+            // Show Menu
+            els.menu.classList.remove('hidden');
+        }
+
+        function startGame() {
+            // Apply settings from persistent state
+            gameState.variant = settingsState.variant;
+            gameState.playerCount = settingsState.playerCount;
+
+            // Apply theme (just in case)
+            updateTableTheme();
+
+            gameState.players = [];
+            for (let i = 0; i < gameState.playerCount; i++) {
+                gameState.players.push({
+                    id: i,
+                    isHuman: i === 0,
+                    hand: [],
+                    alive: true,
+                    name: `P${i + 1}`, // P1, P2, P3, P4
+                    shotsTaken: 0 // New property for probability
+                });
+            }
+
+            // Reset Visibility
+            document.getElementById('player-1').classList.remove('hidden');
+            document.getElementById('player-2').classList.remove('hidden');
+            document.getElementById('player-3').classList.remove('hidden');
+
+            if (gameState.playerCount < 4) document.getElementById('player-3').classList.add('hidden');
+            if (gameState.playerCount < 3) document.getElementById('player-2').classList.add('hidden');
+
+            els.menu.classList.add('hidden');
+            els.gameArea.classList.remove('hidden');
+
+            startNewRound();
+        }
+
+        function createDeck() {
             let deck = [];
-            let players = [];
-            let centerPile = [];
-            let tableCard = '';
-            let currentPlayerIndex = 0;
-            let lastPlay = {
-                playerId: -1,
-                cards: []
-            };
-            let gameInProgress = true;
-
-            // --- Game Logic ---
-
-            /**
-             * Initializes the game
-             */
-            function initGame() {
-                logMessage("Starting a new game of Liar's Table!");
-                players = [];
-                for (let i = 0; i < NUM_PLAYERS; i++) {
-                    players.push({
-                        id: i,
-                        isHuman: i === 0,
-                        hand: [],
-                        lives: STARTING_LIVES,
-                        isOut: false
-                    });
+            for (let r of RANKS) {
+                for (let i = 0; i < 6; i++) {
+                    let suit = SUITS[i % 4];
+                    deck.push({ rank: r, suit: suit, type: 'standard' });
                 }
-                currentPlayerIndex = Math.floor(Math.random() * NUM_PLAYERS); // Random start
-                startNewRound();
             }
-
-            /**
-             * Starts a new round
-             */
-            function startNewRound() {
-                // Clear center pile and last play
-                centerPile = [];
-                lastPlay = { playerId: -1, cards: [] };
-
-                // Determine new table card
-                tableCard = CARD_TYPES[Math.floor(Math.random() * CARD_TYPES.length)];
-                tableCardDisplay.textContent = tableCard;
-                logMessage(`--- New Round ---`);
-                logMessage(`The Table Card is: ${tableCard}`);
-
-                // Create, shuffle, and deal deck
-                createDeck();
-                shuffleDeck();
-                dealCards();
-                
-                // Check if any player is out
-                players.forEach(p => {
-                    if (p.lives <= 0 && !p.isOut) {
-                        p.isOut = true;
-                        logMessage(`Player ${p.id === 0 ? 'You' : p.id} is out of the game!`);
-                    }
-                });
-
-                // Check for game over
-                const activePlayers = players.filter(p => !p.isOut);
-                if (activePlayers.length === 1) {
-                    gameInProgress = false;
-                    showEndGameMessage(activePlayers[0]);
-                    return;
-                }
-
-                // Reset player hands if they are out
-                players.forEach(p => {
-                    if (p.isOut) p.hand = [];
-                });
-
-                updateUI();
-                
-                // Skip any players who are out
-                while(players[currentPlayerIndex].isOut) {
-                    currentPlayerIndex = (currentPlayerIndex + 1) % NUM_PLAYERS;
-                }
-                
-                logMessage(`Player ${currentPlayerIndex === 0 ? 'You' : currentPlayerIndex} will start.`);
-                setTimeout(nextTurn, 500);
+            deck.push({ rank: 'JOKER', suit: '★', type: 'wild' });
+            deck.push({ rank: 'JOKER', suit: '★', type: 'wild' });
+            if (gameState.variant === 'devil') {
+                deck.push({ rank: 'DEVIL', suit: 'ψ', type: 'devil' });
             }
+            return shuffle(deck);
+        }
 
-            /**
-             * Creates the deck of cards
-             */
-            function createDeck() {
-                deck = [];
-                CARD_TYPES.forEach(type => {
-                    for (let i = 0; i < CARDS_PER_TYPE; i++) {
-                        deck.push(type);
+        function shuffle(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+        }
+
+        function startNewRound() {
+            gameState.deck = createDeck();
+            gameState.pile = [];
+            gameState.lastPlay = null;
+            gameState.isRoundOver = false;
+
+            const types = ['Q', 'K', 'A'];
+            gameState.tableType = types[Math.floor(Math.random() * types.length)];
+            
+            let typeName = gameState.tableType === 'Q' ? 'QUEENS' : (gameState.tableType === 'K' ? 'KINGS' : 'ACES');
+            els.tableTypeDisplay.innerText = typeName;
+            els.pile.innerHTML = '<span class="text-white/10 font-bold uppercase tracking-widest pointer-events-none select-none">Pile</span>';
+            
+            announce("New Round", `Table is ${typeName}`);
+            log(`Round Start. Table is ${typeName}.`);
+
+            gameState.players.forEach(p => p.hand = []);
+            for (let i = 0; i < 5; i++) {
+                gameState.players.forEach(p => {
+                    if (p.alive && gameState.deck.length > 0) {
+                        p.hand.push(gameState.deck.pop());
                     }
                 });
             }
 
-            /**
-             * Shuffles the deck
-             */
-            function shuffleDeck() {
-                for (let i = deck.length - 1; i > 0; i--) {
-                    const j = Math.floor(Math.random() * (i + 1));
-                    [deck[i], deck[j]] = [deck[j], deck[i]];
-                }
+            updateUI();
+
+            let activePlayers = gameState.players.filter(p => p.alive);
+            if (activePlayers.length <= 1) {
+                endGame(activePlayers[0]);
+                return;
             }
 
-            /**
-             * Deals cards to all players
-             */
-            function dealCards() {
-                for (let i = 0; i < NUM_PLAYERS; i++) {
-                    if (players[i].isOut) {
-                        players[i].hand = [];
-                        continue;
-                    }
-                    players[i].hand = [];
-                    for (let j = 0; j < STARTING_HAND_SIZE; j++) {
-                        if (deck.length > 0) {
-                            players[i].hand.push(deck.pop());
-                        }
-                    }
-                    if (players[i].isHuman) {
-                        players[i].hand.sort();
+            let starter = activePlayers[Math.floor(Math.random() * activePlayers.length)].id;
+            gameState.currentPlayerIndex = starter;
+
+            setTimeout(processTurn, 1500);
+        }
+
+        /* --- CORE LOGIC --- */
+
+        function processTurn() {
+            if (gameState.isRoundOver) return;
+
+            updateUI();
+            
+            let player = gameState.players[gameState.currentPlayerIndex];
+            
+            // Highlight Logic Only
+            document.querySelectorAll('.avatar').forEach(a => a.classList.remove('active'));
+            document.querySelectorAll('.turn-pill').forEach(p => { p.classList.remove('active'); p.style.opacity = 0; });
+            
+            // Highlight current player UI (Standardized for all)
+            const pEl = (player.id === 0) ? document.getElementById('avatar-0') : document.getElementById(`avatar-${player.id}`);
+            if (pEl) {
+                // If it's a bot, the avatar element is separate, if it's P1, it is avatar-0
+                // For bots, avatar-{id} is the ID of the .avatar element.
+                // For P1, avatar-0 is the ID of the .avatar element.
+                pEl.classList.add('active');
+
+                // Turn Pill for bots only
+                if (player.id !== 0) {
+                    let pill = document.getElementById(`pill-${player.id}`);
+                    if(pill) {
+                        pill.style.opacity = 1;
+                        pill.classList.add('active');
                     }
                 }
             }
+            
+            // Extra highlight for P1 interaction area
+            if (player.id === 0) {
+                els.playerHand.parentElement.classList.add('brightness-110');
+            } else {
+                els.playerHand.parentElement.classList.remove('brightness-110');
+            }
 
-            /**
-             * Handles the logic for the next turn
-             */
-            function nextTurn() {
-                if (!gameInProgress) return;
-
-                updateUI();
-                const currentPlayer = players[currentPlayerIndex];
-
-                if (currentPlayer.isOut) {
-                    logMessage(`Skipping Player ${currentPlayerIndex} (Out).`);
-                    advanceTurn();
-                    return;
-                }
+            if (player.id === 0) {
+                // Human Turn
+                els.btnPlay.disabled = true;
+                els.btnPlay.innerText = "PLAY";
+                els.btnLiar.disabled = !gameState.lastPlay;
                 
-                if (currentPlayer.hand.length === 0) {
-                     logMessage(`Player ${currentPlayerIndex === 0 ? 'You' : currentPlayerIndex} has no cards, skipping.`);
-                     advanceTurn();
-                     return;
-                }
-
-                // Check for mandatory "Liar" call
-                const activePlayersWithCards = players.filter(p => !p.isOut && p.hand.length > 0);
-                if (activePlayersWithCards.length === 1 && lastPlay.playerId !== -1) {
-                    logMessage(`Only Player ${activePlayersWithCards[0].id === 0 ? 'You' : activePlayersWithCards[0].id} has cards. They must call "LIAR!".`);
-                    if (activePlayersWithCards[0].isHuman) {
-                        // Force human to call
-                        liarButton.disabled = false;
-                        playButton.disabled = true;
-                        setPlayerStatus(0, "You must call LIAR!");
+                if (player.hand.length === 0) {
+                    if (gameState.lastPlay) {
+                        log("Hand empty! You must call Liar.");
+                        callLiar();
                     } else {
-                        // Bot automatically calls
-                        setTimeout(() => handleLiarCall(currentPlayerIndex), 1500);
+                        log("Hand empty! Turn skipped.");
+                        announce("Skipped", "No cards left");
+                        setTimeout(nextTurn, 1000);
                     }
+                }
+
+            } else {
+                // Bot Turn
+                els.btnPlay.disabled = true;
+                els.btnLiar.disabled = true;
+                setTimeout(() => botAI(player), 2000); // 2s thinking time
+            }
+        }
+
+        function nextTurn() {
+            if (gameState.isRoundOver) return;
+
+            let attempts = 0;
+            do {
+                gameState.currentPlayerIndex = (gameState.currentPlayerIndex + 1) % gameState.players.length;
+                attempts++;
+            } while (!gameState.players[gameState.currentPlayerIndex].alive && attempts < 10);
+
+            let alive = gameState.players.filter(p => p.alive);
+            if (alive.length === 1) {
+                endGame(alive[0]);
+                return;
+            }
+
+            processTurn();
+        }
+
+        /* --- PLAYER ACTIONS --- */
+
+        function selectCard(cardIndex, cardEl) {
+            if (gameState.currentPlayerIndex !== 0) return;
+            
+            const card = gameState.players[0].hand[cardIndex];
+            
+            if (card.selected) {
+                card.selected = false;
+                cardEl.classList.remove('selected');
+            } else {
+                let selectedCount = gameState.players[0].hand.filter(c => c.selected).length;
+                if (selectedCount < 3) {
+                    card.selected = true;
+                    cardEl.classList.add('selected');
+                }
+            }
+
+            let selected = gameState.players[0].hand.filter(c => c.selected);
+            els.btnPlay.disabled = selected.length === 0;
+            els.btnPlay.innerText = selected.length > 0 ? `PLAY (${selected.length})` : "PLAY";
+        }
+
+        function playSelectedCards() {
+            let player = gameState.players[0];
+            let selectedIndices = [];
+            player.hand.forEach((c, i) => { if (c.selected) selectedIndices.push(i); });
+            
+            let playedCards = [];
+            for (let i = selectedIndices.length - 1; i >= 0; i--) {
+                playedCards.push(player.hand.splice(selectedIndices[i], 1)[0]);
+            }
+            playedCards.forEach(c => c.selected = false);
+            submitPlay(player.id, playedCards);
+        }
+
+        function submitPlay(playerId, cards) {
+            gameState.lastPlay = {
+                playerId: playerId,
+                count: cards.length,
+                cards: cards
+            };
+
+            // Store card data on the DOM element for reveal later
+            cards.forEach((card) => addToPileVisual(playerId, card));
+            
+            let playerName = gameState.players[playerId].name;
+            log(`${playerName} played ${cards.length} card(s).`);
+            announce(`${playerName} Plays`, `${cards.length} Card${cards.length > 1 ? 's' : ''}`);
+            
+            updateUI();
+            setTimeout(nextTurn, 1000);
+        }
+
+        function callLiar() {
+            if (!gameState.lastPlay) return;
+            
+            let challenger = gameState.players[gameState.currentPlayerIndex];
+            let accused = gameState.players[gameState.lastPlay.playerId];
+            
+            log(`${challenger.name} calls LIAR on ${accused.name}!`);
+            announce("LIAR!", `${challenger.name} challenges ${accused.name}`);
+            
+            setTimeout(() => revealCards(accused, challenger), 1500);
+        }
+
+        function revealCards(accused, challenger) {
+            let playedCards = gameState.lastPlay.cards;
+            let count = playedCards.length;
+            
+            // Visual Reveal with Fan Effect
+            let pileCards = document.querySelectorAll('.pile-card');
+            
+            // We want to transform the last 'count' cards
+            for(let i = 0; i < count; i++) {
+                let indexFromTop = i; // 0 is last played (top), 1 is second last
+                let pileIndex = pileCards.length - 1 - i;
+                
+                let el = pileCards[pileIndex];
+                if(el) {
+                    let c = playedCards[playedCards.length - 1 - i];
+                    // Flip styles
+                    el.classList.remove('card-back');
+                    el.classList.add('card', 'revealed');
+                    
+                    // Fan Calculation
+                    let spread = 60;
+                    let midpoint = (count - 1) / 2;
+                    let xOffset = (indexFromTop - midpoint) * spread * -1; // -1 to flip order visually if needed, or adjust math
+                    let rotate = (indexFromTop - midpoint) * -5;
+
+                    el.style.transform = `translate(${xOffset}px, 0px) rotate(${rotate}deg) scale(1.1)`;
+
+                    let colorClass = (c.suit === '♥' || c.suit === '♦') ? 'red' : 'black';
+                    if (c.rank === 'JOKER' || c.rank === 'DEVIL') colorClass = 'joker-text';
+
+                    el.innerHTML = `
+                        <div class="card-val ${colorClass}">${c.rank === 'JOKER' ? 'J' : (c.rank === 'DEVIL' ? 'D' : c.rank)}</div>
+                        <div class="card-suit ${colorClass}">${c.suit}</div>
+                        <div class="card-val-bottom ${colorClass}">${c.rank === 'JOKER' ? 'J' : (c.rank === 'DEVIL' ? 'D' : c.rank)}</div>
+                    `;
+                }
+            }
+
+            let isLiar = false;
+            let devilFound = false;
+
+            let cardNames = [];
+            for (let c of playedCards) {
+                cardNames.push(c.rank);
+                if (c.rank === 'DEVIL') devilFound = true;
+                if (c.rank !== gameState.tableType && c.rank !== 'JOKER' && c.rank !== 'DEVIL') {
+                    isLiar = true;
+                }
+            }
+
+            log(`Revealed: ${cardNames.join(', ')}`);
+
+            setTimeout(() => {
+                if (devilFound) {
+                    announce("DEVIL!", "Chaos unleashed!");
+                    setTimeout(() => triggerRouletteSequence(gameState.players.filter(p => p.id !== accused.id)), 2000);
+                } else if (isLiar) {
+                    announce("CAUGHT!", `${accused.name} was lying!`);
+                    setTimeout(() => triggerRoulette(accused), 2000);
+                } else {
+                    announce("TRUTH!", `${accused.name} was honest!`);
+                    setTimeout(() => triggerRoulette(challenger), 2000);
+                }
+            }, 1000);
+        }
+
+        function triggerRoulette(victim) {
+            gameState.isRoundOver = true;
+            els.roulette.classList.remove('hidden');
+            
+            els.rouletteResult.innerText = "...";
+            els.rouletteResult.className = "text-9xl font-black crimson text-gray-500";
+            els.rouletteSub.innerText = `${victim.name} is pulling the trigger...`;
+            
+            // Calculate Odds based on shots taken
+            // Standard: 6 chambers.
+            let chambersLeft = 6 - victim.shotsTaken;
+            let odds = 1 / chambersLeft;
+            // Cap at 1 (guaranteed death on 6th shot)
+            if (chambersLeft <= 1) odds = 1;
+
+            log(`${victim.name} probability: ${(odds*100).toFixed(1)}% (${victim.shotsTaken}/6 spent)`);
+
+            setTimeout(() => {
+                let die = Math.random() < odds;
+                
+                // Sound cue simulation
+                els.rouletteResult.innerText = "CLICK";
+                els.rouletteResult.className = "text-6xl font-black text-gray-400";
+
+                setTimeout(() => {
+                    if (die) {
+                         els.rouletteResult.innerText = "BANG!";
+                         els.rouletteResult.className = "text-9xl font-black text-red-600 text-pulse-red";
+                         els.rouletteSub.innerText = "FATAL SHOT";
+                         setTimeout(() => eliminatePlayer(victim), 1500);
+                    } else {
+                         victim.shotsTaken++; // Survive & Increment used chamber
+                         els.rouletteResult.innerText = "SAFE";
+                         els.rouletteResult.className = "text-8xl font-black text-green-500";
+                         els.rouletteSub.innerText = `${victim.name} survives. Chamber spent.`;
+                         setTimeout(() => {
+                            els.roulette.classList.add('hidden');
+                            startNewRound();
+                         }, 1500);
+                    }
+                }, 800);
+            }, 1500);
+        }
+        
+        async function triggerRouletteSequence(victims) {
+             gameState.isRoundOver = true;
+             els.roulette.classList.remove('hidden');
+             
+             for (let v of victims) {
+                 if (!v.alive) continue;
+                 els.rouletteResult.innerText = "...";
+                 els.rouletteResult.className = "text-9xl font-black text-gray-500";
+                 els.rouletteSub.innerText = `${v.name}'s turn...`;
+                 
+                 // Calculate Odds
+                 let chambersLeft = 6 - v.shotsTaken;
+                 let odds = 1 / chambersLeft;
+                 if (chambersLeft <= 1) odds = 1;
+
+                 log(`${v.name} probability: ${(odds*100).toFixed(1)}%`);
+
+                 await new Promise(r => setTimeout(r, 1500));
+                 
+                 let die = Math.random() < odds;
+                 if (die) {
+                     els.rouletteResult.innerText = "BANG!";
+                     els.rouletteResult.className = "text-9xl font-black text-red-600 text-pulse-red";
+                     await new Promise(r => setTimeout(r, 1000));
+                     eliminatePlayer(v);
+                     if (!gameState.players.some(p => p.id===0 && p.alive)) return; 
+                 } else {
+                     v.shotsTaken++;
+                     els.rouletteResult.innerText = "SAFE";
+                     els.rouletteResult.className = "text-8xl font-black text-green-500";
+                 }
+                 await new Promise(r => setTimeout(r, 1500));
+             }
+             
+             setTimeout(() => {
+                 els.roulette.classList.add('hidden');
+                 startNewRound();
+             }, 1000);
+        }
+
+        function eliminatePlayer(player) {
+            player.alive = false;
+            log(`${player.name} ELIMINATED.`);
+            
+            if (player.id === 0) {
+                els.roulette.classList.add('hidden');
+                els.gameOver.classList.remove('hidden');
+                els.gameOverTitle.innerText = "YOU DIED";
+            } else {
+                let survivors = gameState.players.filter(p => p.alive);
+                if (survivors.length === 1 && survivors[0].id === 0) {
+                    els.roulette.classList.add('hidden');
+                    els.gameOver.classList.remove('hidden');
+                    els.gameOverTitle.innerText = "VICTORY";
+                    els.gameOverReason.innerText = "You are the last survivor.";
+                } else {
+                    if(!els.roulette.classList.contains('hidden')){ 
+                         // Single roulette case, close it
+                         setTimeout(() => {
+                            els.roulette.classList.add('hidden');
+                            startNewRound();
+                         }, 1000);
+                    }
+                }
+            }
+        }
+        
+        function endGame(winner) {
+             els.gameOver.classList.remove('hidden');
+             els.gameOverTitle.innerText = winner.id === 0 ? "VICTORY" : "DEFEAT";
+             els.gameOverReason.innerText = `${winner.name} won the game.`;
+        }
+
+        /* --- BOT AI --- */
+
+        function botAI(bot) {
+            if (!bot.alive) { nextTurn(); return; }
+
+            // 1. Check if we should call Liar
+            if (gameState.lastPlay) {
+                let prevCount = gameState.lastPlay.count;
+                let callProb = 0.1;
+                if (prevCount === 2) callProb = 0.35;
+                if (prevCount === 3) callProb = 0.75;
+                
+                let myTableCards = bot.hand.filter(c => c.rank === gameState.tableType || c.rank === 'JOKER').length;
+                if (myTableCards >= 3) callProb += 0.4; // I have them all, he must be lying
+
+                if (Math.random() < callProb) {
+                    callLiar();
                     return;
                 }
-
-
-                setPlayerStatus(currentPlayerIndex, "Thinking...");
-
-                if (currentPlayer.isHuman) {
-                    // Enable human player controls
-                    playButton.disabled = false;
-                    liarButton.disabled = lastPlay.playerId === -1 || lastPlay.playerId === 0;
-                } else {
-                    // Bot logic
-                    playButton.disabled = true;
-                    liarButton.disabled = true;
-                    setTimeout(() => botTurn(currentPlayer), 1500 + Math.random() * 1500);
-                }
             }
 
-            /**
-             * Advances the turn to the next active player
-             */
-            function advanceTurn() {
-                currentPlayerIndex = (currentPlayerIndex + 1) % NUM_PLAYERS;
-                
-                // Skip players who are out
-                while(players[currentPlayerIndex].isOut) {
-                    currentPlayerIndex = (currentPlayerIndex + 1) % NUM_PLAYERS;
-                }
-                
-                nextTurn();
+            // 2. Play cards
+            let truthCards = bot.hand.filter(c => c.rank === gameState.tableType || c.rank === 'JOKER');
+            let lieCards = bot.hand.filter(c => c.rank !== gameState.tableType && c.rank !== 'JOKER');
+            let cardsToPlay = [];
+
+            if (truthCards.length > 0 && Math.random() > 0.2) {
+                // Play Truth
+                let count = Math.min(truthCards.length, Math.ceil(Math.random() * 2)); // Bots usually play 1 or 2
+                cardsToPlay = truthCards.slice(0, count);
+            } else {
+                // Lie
+                let count = 1; 
+                if (lieCards.length >= 2 && Math.random() < 0.3) count = 2; 
+                cardsToPlay = lieCards.slice(0, count);
+            }
+            
+            if(cardsToPlay.length === 0) {
+                 // Forced to lie if no truth and logic skipped?
+                 cardsToPlay = [lieCards[0]];
             }
 
-            /**
-             * Logic for a bot's turn
-             */
-            function botTurn(bot) {
-                // Decision: Call Liar or Play?
-                // Bot can't call liar on first turn or on its own play
-                const canCallLiar = lastPlay.playerId !== -1 && lastPlay.playerId !== bot.id;
-                let callLiar = false;
+            // Remove from hand
+            cardsToPlay.forEach(c => {
+                let idx = bot.hand.indexOf(c);
+                if (idx > -1) bot.hand.splice(idx, 1);
+            });
 
-                if (canCallLiar) {
-                    // Simple AI: More likely to call if more cards were played
-                    const randomFactor = Math.random();
-                    let callProbability = 0.1; // Base probability
-                    if (lastPlay.cards.length === 2) callProbability = 0.3;
-                    if (lastPlay.cards.length === 3) callProbability = 0.5;
+            submitPlay(bot.id, cardsToPlay);
+        }
 
-                    // If bot has 0 or 1 of the table card, it's more suspicious
-                    const tableCardsInHand = bot.hand.filter(c => c === tableCard).length;
-                    if (tableCardsInHand <= 1) callProbability += 0.2;
+        /* --- UI HELPERS --- */
 
-                    if (randomFactor < callProbability) {
-                        callLiar = true;
-                    }
-                }
+        function announce(main, sub) {
+            els.announceMain.innerText = main;
+            els.announceSub.innerText = sub;
+            els.announcement.classList.add('visible');
+            els.announcement.classList.add('pop-in');
+            
+            setTimeout(() => {
+                els.announcement.classList.remove('visible');
+                els.announcement.classList.remove('pop-in');
+            }, 2000);
+        }
 
-                if (callLiar) {
-                    handleLiarCall(bot.id);
-                } else {
-                    // Decision: Play cards
-                    let cardsToPlay = [];
-                    const trueCards = bot.hand.filter(c => c === tableCard);
-                    const lieCards = bot.hand.filter(c => c !== tableCard);
-
-                    // Strategy:
-                    // 1. If has true cards, play 1 or 2
-                    if (trueCards.length > 0) {
-                        const numToPlay = Math.random() < 0.7 ? 1 : Math.min(trueCards.length, 2); // Prefer playing 1
-                        for (let i = 0; i < numToPlay; i++) {
-                            cardsToPlay.push(trueCards[i]);
+        function updateUI() {
+            gameState.players.forEach(p => {
+                let chamberId = (p.id === 0) ? 'player-chamber-0' : `chamber-${p.id}`;
+                let chamberEl = document.getElementById(chamberId);
+                
+                if (chamberEl) {
+                    chamberEl.innerHTML = "";
+                    for(let i=0; i<6; i++) {
+                        let dot = document.createElement('div');
+                        dot.className = "chamber-dot";
+                        if (i < p.shotsTaken) {
+                            dot.classList.add("spent");
                         }
+                        chamberEl.appendChild(dot);
                     }
-                    // 2. If no true cards, must lie. Play 1 lie card.
-                    else if (lieCards.length > 0) {
-                        cardsToPlay.push(lieCards[0]); // Play one lie card
-                    }
-                    // 3. If hand is empty (shouldn't happen here, but safe-guard)
-                    else {
-                        advanceTurn();
+                }
+
+                if (p.id !== 0) {
+                    let container = document.getElementById(`player-${p.id}`);
+                    if (!container) return;
+                    
+                    if (!p.alive) {
+                        document.getElementById(`avatar-${p.id}`).classList.add('eliminated');
+                        document.getElementById(`cards-${p.id}`).innerText = "DEAD";
+                        container.style.opacity = 0.5;
                         return;
                     }
-
-                    handlePlayCards(bot.id, cardsToPlay);
+                    document.getElementById(`cards-${p.id}`).innerText = p.hand.length;
                 }
-            }
+            });
+
+            let p1 = gameState.players[0];
+            els.playerHand.innerHTML = "";
+            p1.hand.forEach((card, idx) => {
+                let div = document.createElement('div');
+                div.className = `card ${card.selected ? 'selected' : ''}`;
+                
+                let colorClass = (card.suit === '♥' || card.suit === '♦') ? 'red' : 'black';
+                if (card.rank === 'JOKER' || card.rank === 'DEVIL') colorClass = 'joker-text';
+
+                div.innerHTML = `
+                    <div class="card-val ${colorClass}">${card.rank === 'JOKER' ? 'J' : (card.rank === 'DEVIL' ? 'D' : card.rank)}</div>
+                    <div class="card-suit ${colorClass}">${card.suit}</div>
+                    <div class="card-val-bottom ${colorClass}">${card.rank === 'JOKER' ? 'J' : (card.rank === 'DEVIL' ? 'D' : card.rank)}</div>
+                `;
+                
+                div.onclick = () => selectCard(idx, div);
+                els.playerHand.appendChild(div);
+            });
+        }
+
+        function addToPileVisual(playerId, cardData) {
+            let card = document.createElement('div');
+            card.className = "card card-back pile-card";
+            // Store data for reveal
+            card.dataset.rank = cardData.rank;
+            card.dataset.suit = cardData.suit;
             
-            /**
-             * Handles the "Play" button click for the human
-             */
-            function onPlayClick() {
-                const selectedCards = getSelectedCards();
-                if (selectedCards.length === 0) {
-                    setPlayerStatus(0, "You must select 1, 2, or 3 cards to play.");
-                    return;
-                }
-                if (selectedCards.length > 3) {
-                     setPlayerStatus(0, "You can only play a maximum of 3 cards.");
-                    return;
-                }
+            let rot = Math.random() * 40 - 20;
+            let x = Math.random() * 20 - 10;
+            let y = Math.random() * 20 - 10;
+            card.style.transform = `rotate(${rot}deg) translate(${x}px, ${y}px)`;
+            els.pile.appendChild(card);
+        }
 
-                handlePlayCards(0, selectedCards);
-            }
+        function log(msg) {
+            let p = document.createElement('div');
+            p.innerText = `> ${msg}`;
+            p.className = "mb-1 border-b border-white/5 pb-1 last:border-0";
+            els.log.insertBefore(p, els.log.firstChild);
+        }
 
-            /**
-             * Gets the values of the selected cards from the UI
-             */
-            function getSelectedCards() {
-                const selectedElements = playerHandElement.querySelectorAll('.card.selected');
-                return Array.from(selectedElements).map(cardEl => cardEl.dataset.value);
-            }
+        // Initialize Theme on Load
+        updateTableTheme();
+        // Initialize buttons visual state on load
+        updateSettingsUI();
 
-            /**
-             * Handles the "Call Liar" button click for the human
-             */
-            function onLiarClick() {
-                handleLiarCall(0);
-            }
-
-            /**
-             * Processes a "Play Cards" action
-             */
-            function handlePlayCards(playerId, cards) {
-                const player = players[playerId];
-                
-                // Remove cards from player's hand
-                cards.forEach(cardValue => {
-                    const index = player.hand.indexOf(cardValue);
-                    if (index > -1) {
-                        player.hand.splice(index, 1);
-                    }
-                });
-
-                // Add cards to center pile
-                centerPile.push(...cards);
-                
-                // Update last play
-                lastPlay = {
-                    playerId: playerId,
-                    cards: cards
-                };
-                
-                const playerName = playerId === 0 ? "You" : `Player ${playerId}`;
-                logMessage(`${playerName} played ${cards.length} card(s).`);
-
-                // Explicitly update the UI *after* modifying the hand
-                if (player.isHuman) {
-                    updateUI();
-                }
-
-                advanceTurn();
-            }
-            
-            /**
-             * Processes a "Call Liar" action
-             */
-            function handleLiarCall(accuserPlayerId) {
-                if (lastPlay.playerId === -1) return; // Should not happen
-
-                gameInProgress = false; // Pause game for message box
-                playButton.disabled = true;
-                liarButton.disabled = true;
-
-                const accuserName = accuserPlayerId === 0 ? playerName : `Player ${accuserPlayerId}`;
-                const accusedName = lastPlay.playerId === 0 ? playerName : `Player ${lastPlay.playerId}`;
-                
-                logMessage(`${accuserName} calls "LIAR!" on ${accusedName}.`);
-                logMessage(`Revealing ${lastPlay.cards.length} card(s)...`);
-
-                // Check the lie
-                const playedCards = lastPlay.cards;
-                const wasLying = playedCards.some(card => card !== tableCard);
-
-                let title = "";
-                let text = "";
-                let loserId = -1;
-
-                if (wasLying) {
-                    title = "Caught!";
-                    text = `${accusedName} is LYING! ${accuserName} was correct. ${accusedName} loses a life.`;
-                    loserId = lastPlay.playerId;
-                    logMessage(`${accusedName} is LYING!`);
-                } else {
-                    title = "Wrong!";
-                    text = `${accusedName} is telling the TRUTH! ${accuserName} was wrong. ${accuserName} loses a life.`;
-                    loserId = accuserPlayerId;
-                    logMessage(`${accusedName} is telling the TRUTH!`);
-                }
-                
-                // Apply penalty
-                if (loserId !== -1) {
-                    players[loserId].lives--;
-                    logMessage(`${loserId === 0 ? playerName : `Player ${loserId}`} lose(s) a life.`);
-                    // Set next round starter
-                    currentPlayerIndex = loserId; 
-                }
-                
-                // Show message box
-                showMessage(title, text, playedCards);
-            }
-            
-            /**
-             * Shows the round result message box
-             */
-            function showMessage(title, text, revealedCards) {
-                messageTitle.textContent = title;
-                messageText.textContent = text;
-                
-                // Display revealed cards
-                messageRevealedCards.innerHTML = '';
-                revealedCards.forEach(cardValue => {
-                    const cardEl = createCardElement(cardValue, false);
-                    if (cardValue !== tableCard) {
-                        cardEl.classList.add('border-red-500', 'border-4');
-                    } else {
-                        cardEl.classList.add('border-green-500', 'border-4');
-                    }
-                    messageRevealedCards.appendChild(cardEl);
-                });
-
-                messageOkButton.textContent = "Next Round";
-                messageOkButton.onclick = () => {
-                    messageBox.classList.add('hidden');
-                    gameInProgress = true;
-                    startNewRound();
-                };
-                messageBox.classList.remove('hidden');
-            }
-            
-            /**
-             * Shows the end game message
-             */
-            function showEndGameMessage(winner) {
-                const winnerName = winner.isHuman ? "You" : `Player ${winner.id}`;
-                messageTitle.textContent = "Game Over!";
-                messageText.textContent = `${winnerName} won the game!`;
-                messageRevealedCards.innerHTML = '';
-                
-                messageOkButton.textContent = "Play Again";
-                messageOkButton.onclick = () => {
-                    messageBox.classList.add('hidden');
-                    gameInProgress = true;
-                    initGame();
-                };
-                messageBox.classList.remove('hidden');
-            }
-
-            /**
-             * Creates a card DOM element
-             */
-            function createCardElement(value, isBack) {
-                const card = document.createElement('div');
-                card.className = 'card';
-                if (isBack) {
-                    card.classList.add('card-back');
-                } else {
-                    card.innerHTML = `<span class="card-value">${value}</span>`;
-                    if (value === 'K') card.classList.add('text-red-400');
-                    if (value === 'Q') card.classList.add('text-blue-400');
-                    if (value === 'J') card.classList.add('text-green-400');
-                }
-                card.dataset.value = value;
-                return card;
-            }
-
-            /**
-             * Toggles card selection in the human player's hand
-             */
-            function onCardClick(e) {
-                let card = e.target;
-                if (!card.classList.contains('card')) {
-                    card = card.closest('.card');
-                }
-                
-                if (card && card.parentElement.id === 'player-hand') { // Check that the card is in the player's hand
-                    const selectedCount = playerHandElement.querySelectorAll('.card.selected').length;
-                    
-                    if (card.classList.contains('selected')) {
-                        card.classList.remove('selected');
-                    } else if (selectedCount < 3) {
-                        card.classList.add('selected');
-                    }
-                }
-            }
-            
-            /**
-             * Updates all UI elements based on game state
-             */
-            function updateUI() {
-                // Update player zones
-                for (let i = 0; i < NUM_PLAYERS; i++) {
-                    const player = players[i];
-                    
-                    // Highlight active player
-                    if (i === currentPlayerIndex && gameInProgress && !player.isOut) {
-                        playerZones[i].classList.add('active');
-                    } else {
-                        playerZones[i].classList.remove('active');
-                    }
-
-                    // Update lives
-                    playerLives[i].innerHTML = '';
-                    for (let j = 0; j < STARTING_LIVES; j++) {
-                        const lifeEl = document.createElement('div');
-                        lifeEl.className = 'life';
-                        if (j >= player.lives) {
-                            lifeEl.classList.add('lost');
-                        }
-                        playerLives[i].appendChild(lifeEl);
-                    }
-                    
-                    // Update card counts (Bots)
-                    if (!player.isHuman) {
-                        playerCardCounts[i].textContent = player.hand.length;
-                    }
-                    
-                    if (player.isOut) {
-                        setPlayerStatus(i, "OUT");
-                        playerZones[i].classList.add('opacity-40');
-                    }
-                }
-                
-                // Update human player's hand
-                playerHandElement.innerHTML = '';
-                players[0].hand.forEach(cardValue => {
-                    const cardEl = createCardElement(cardValue, false);
-                    playerHandElement.appendChild(cardEl);
-                });
-
-                // Update center pile count
-                centerPileCount.textContent = centerPile.length;
-            }
-            
-            /**
-             * Sets the status message for a player
-             */
-            function setPlayerStatus(playerId, message) {
-                // Clear all statuses first
-                playerStatuses.forEach(status => status.textContent = '');
-                // Set the new status
-                if (playerStatuses[playerId]) {
-                    playerStatuses[playerId].textContent = message;
-                }
-            }
-            
-            /**
-             * Adds a message to the game log
-             */
-            function logMessage(message) {
-                const p = document.createElement('p');
-                p.textContent = message;
-                gameLog.appendChild(p);
-                // Auto-scroll to bottom
-                gameLog.scrollTop = gameLog.scrollHeight;
-            }
-
-            // --- Event Listeners ---
-            playButton.addEventListener('click', onPlayClick);
-            liarButton.addEventListener('click', onLiarClick);
-            playerHandElement.addEventListener('click', onCardClick);
-
-            // --- Start Game ---
-            initGame();
-        });
     </script>
 </body>
 </html>
-

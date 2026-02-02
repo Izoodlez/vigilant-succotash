@@ -10,9 +10,13 @@
     <!-- Load Inter font -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
+        html, body {
+            height: 100%;
+            margin: 0;
+            overflow: hidden; /* Prevent page scrolling */
+        }
         body {
             font-family: 'Inter', sans-serif;
-            /* Removed overflow: hidden */
         }
         .player-hand {
             display: flex;
@@ -170,7 +174,7 @@
             <div id="player-zone-0" class="player-zone border-4 border-transparent rounded-lg p-4 bg-gray-800 shadow-lg w-full max-w-3xl">
                 <div class="flex justify-between items-center">
                     <div class="w-1/3">
-                        <h3 class="text-2xl font-bold">Isaiah</h3>
+                        <h3 id="player-name" class="text-2xl font-bold">Main</h3>
                         <div id="lives-0" class="lives my-2"></div>
                         <p id="status-0" class="text-yellow-400 h-6"></p>
                     </div>
@@ -252,6 +256,11 @@
             const messageText = document.getElementById('message-text');
             const messageRevealedCards = document.getElementById('message-revealed-cards');
             const messageOkButton = document.getElementById('message-ok-button');
+
+            // Prompt for human player's name
+            let playerName = prompt("Enter your name:", "") || "";
+            const playerNameEl = document.getElementById('player-name');
+            if (playerNameEl) playerNameEl.textContent = playerName;
 
             // --- Game Constants ---
             const CARD_TYPES = ['K', 'Q', 'J'];
@@ -584,8 +593,8 @@
                 playButton.disabled = true;
                 liarButton.disabled = true;
 
-                const accuserName = accuserPlayerId === 0 ? "Isaiah" : `Player ${accuserPlayerId}`;
-                const accusedName = lastPlay.playerId === 0 ? "Isaiah" : `Player ${lastPlay.playerId}`;
+                const accuserName = accuserPlayerId === 0 ? playerName : `Player ${accuserPlayerId}`;
+                const accusedName = lastPlay.playerId === 0 ? playerName : `Player ${lastPlay.playerId}`;
                 
                 logMessage(`${accuserName} calls "LIAR!" on ${accusedName}.`);
                 logMessage(`Revealing ${lastPlay.cards.length} card(s)...`);
@@ -613,7 +622,7 @@
                 // Apply penalty
                 if (loserId !== -1) {
                     players[loserId].lives--;
-                    logMessage(`${loserId === 0 ? "Isaiah" : `Player ${loserId}`} lose(s) a life.`);
+                    logMessage(`${loserId === 0 ? playerName : `Player ${loserId}`} lose(s) a life.`);
                     // Set next round starter
                     currentPlayerIndex = loserId; 
                 }

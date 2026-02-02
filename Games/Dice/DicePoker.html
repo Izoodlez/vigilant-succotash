@@ -1,0 +1,1602 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Dice Poker - Double Down Edition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Roboto+Mono:wght@500&display=swap');
+
+        body {
+            background-color: #0f172a;
+            color: white;
+            font-family: 'Roboto Mono', monospace;
+            overflow: hidden;
+            touch-action: manipulation;
+        }
+
+        /* Felt Table Texture */
+        .felt-bg {
+            box-shadow: inset 0 0 100px #000;
+            transition: background 0.5s ease;
+        }
+
+        /* Color Themes */
+        .theme-green { background: radial-gradient(circle at center, #276337 0%, #1a4226 100%); }
+        .theme-blue { background: radial-gradient(circle at center, #1e40af 0%, #172554 100%); }
+        .theme-red { background: radial-gradient(circle at center, #991b1b 0%, #450a0a 100%); }
+        .theme-purple { background: radial-gradient(circle at center, #7e22ce 0%, #3b0764 100%); }
+        .theme-black { background: radial-gradient(circle at center, #334155 0%, #0f172a 100%); }
+
+        /* 3D Dice Styling */
+        .die {
+            width: 60px;
+            height: 60px;
+            background: #f8fafc;
+            border-radius: 8px;
+            box-shadow: 
+                inset 2px 2px 5px rgba(255,255,255,0.8),
+                inset -2px -2px 5px rgba(0,0,0,0.2),
+                2px 4px 6px rgba(0,0,0,0.4);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            position: relative;
+            border: 2px solid transparent;
+        }
+
+        .die:hover {
+            transform: scale(1.1) rotate(5deg);
+            box-shadow: 
+                inset 2px 2px 5px rgba(255,255,255,0.8),
+                inset -2px -2px 5px rgba(0,0,0,0.2),
+                5px 10px 15px rgba(0,0,0,0.3);
+            z-index: 10;
+        }
+
+        .die:active {
+            transform: scale(0.95);
+        }
+
+        .die.held {
+            background-color: #fffbeb;
+            border-color: #f59e0b;
+            box-shadow: 0 0 0 2px #f59e0b, 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+            transform: translateY(-8px);
+        }
+        
+        /* Held hover state */
+        .die.held:hover {
+            transform: translateY(-10px) scale(1.05);
+        }
+
+        .die.held::after {
+            content: 'HELD';
+            position: absolute;
+            top: -24px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #f59e0b;
+            color: #000;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: bold;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .dot {
+            width: 10px;
+            height: 10px;
+            background: #1e293b;
+            border-radius: 50%;
+            box-shadow: inset 1px 1px 2px rgba(0,0,0,0.5);
+            align-self: center;
+            justify-self: center;
+        }
+
+        /* Die Faces Grid System (Standard 3x3) */
+        [class^="face-"] {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: repeat(3, 1fr);
+            width: 100%;
+            height: 100%;
+            padding: 8px;
+        }
+
+        /* Face 1: Center */
+        .face-1 .dot:nth-child(1) { grid-area: 2 / 2; }
+
+        /* Face 2: Top-Left, Bottom-Right */
+        .face-2 .dot:nth-child(1) { grid-area: 1 / 1; }
+        .face-2 .dot:nth-child(2) { grid-area: 3 / 3; }
+
+        /* Face 3: TL, Center, BR */
+        .face-3 .dot:nth-child(1) { grid-area: 1 / 1; }
+        .face-3 .dot:nth-child(2) { grid-area: 2 / 2; }
+        .face-3 .dot:nth-child(3) { grid-area: 3 / 3; }
+
+        /* Face 4: Corners */
+        .face-4 .dot:nth-child(1) { grid-area: 1 / 1; }
+        .face-4 .dot:nth-child(2) { grid-area: 1 / 3; }
+        .face-4 .dot:nth-child(3) { grid-area: 3 / 1; }
+        .face-4 .dot:nth-child(4) { grid-area: 3 / 3; }
+
+        /* Face 5: Corners + Center */
+        .face-5 .dot:nth-child(1) { grid-area: 1 / 1; }
+        .face-5 .dot:nth-child(2) { grid-area: 1 / 3; }
+        .face-5 .dot:nth-child(3) { grid-area: 2 / 2; }
+        .face-5 .dot:nth-child(4) { grid-area: 3 / 1; }
+        .face-5 .dot:nth-child(5) { grid-area: 3 / 3; }
+
+        /* Face 6: Two Columns */
+        .face-6 .dot:nth-child(1) { grid-area: 1 / 1; }
+        .face-6 .dot:nth-child(2) { grid-area: 1 / 3; }
+        .face-6 .dot:nth-child(3) { grid-area: 2 / 1; }
+        .face-6 .dot:nth-child(4) { grid-area: 2 / 3; }
+        .face-6 .dot:nth-child(5) { grid-area: 3 / 1; }
+        .face-6 .dot:nth-child(6) { grid-area: 3 / 3; }
+
+
+        .rolling {
+            animation: shake 0.5s infinite;
+        }
+
+        @keyframes shake {
+            0% { transform: rotate(0deg) translate(0, 0); }
+            25% { transform: rotate(5deg) translate(2px, 2px); }
+            50% { transform: rotate(0deg) translate(0, -2px); }
+            75% { transform: rotate(-5deg) translate(-2px, 2px); }
+            100% { transform: rotate(0deg) translate(0, 0); }
+        }
+
+        /* --- DYNAMIC UI BUTTONS --- */
+        
+        .btn-primary {
+            background: linear-gradient(to bottom, #f59e0b, #d97706);
+            border: 1px solid #b45309;
+            color: #fff;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.4);
+            box-shadow: 0 4px 0 #92400e, 0 5px 10px rgba(0,0,0,0.3);
+            transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            transform-style: preserve-3d;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            background: linear-gradient(to bottom, #fbbf24, #b45309);
+            box-shadow: 0 6px 0 #92400e, 0 10px 20px rgba(245, 158, 11, 0.4);
+            text-shadow: 0 0 8px rgba(255, 255, 255, 0.6);
+            border-color: #f59e0b;
+        }
+        
+        .btn-primary:active {
+            transform: translateY(4px);
+            box-shadow: 0 0 0 #92400e, inset 0 2px 4px rgba(0,0,0,0.4);
+        }
+
+        .btn-primary:disabled {
+            background: #94a3b8;
+            border-color: #64748b;
+            box-shadow: none;
+            cursor: not-allowed;
+            transform: translateY(2px);
+        }
+        
+        /* Secondary Button (Settings, etc) */
+        .btn-secondary {
+            background: linear-gradient(to bottom, #334155, #1e293b);
+            border: 1px solid #475569;
+            color: #e2e8f0;
+            text-shadow: 0 1px 1px rgba(0,0,0,0.5);
+            box-shadow: 0 4px 0 #0f172a, 0 5px 10px rgba(0,0,0,0.3);
+            transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .btn-secondary:hover {
+            transform: translateY(-2px);
+            background: linear-gradient(to bottom, #475569, #334155);
+            box-shadow: 0 6px 0 #0f172a, 0 10px 15px rgba(0,0,0,0.5);
+            color: #fff;
+            border-color: #94a3b8;
+        }
+
+        .btn-secondary:active {
+            transform: translateY(4px);
+            box-shadow: 0 0 0 #0f172a, inset 0 2px 4px rgba(0,0,0,0.5);
+        }
+        
+        /* Double Down Button Style */
+        .btn-danger {
+            background: linear-gradient(to bottom, #ef4444, #b91c1c);
+            border: 1px solid #7f1d1d;
+            color: #fff;
+            box-shadow: 0 4px 0 #7f1d1d, 0 5px 10px rgba(0,0,0,0.3);
+            transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .btn-danger:hover {
+             transform: translateY(-2px);
+             background: linear-gradient(to bottom, #f87171, #dc2626);
+             box-shadow: 0 6px 0 #7f1d1d, 0 0 15px rgba(220, 38, 38, 0.6);
+             text-shadow: 0 0 5px rgba(255,255,255,0.4);
+        }
+        
+        .btn-danger:active {
+            transform: translateY(4px);
+            box-shadow: 0 0 0 #7f1d1d, inset 0 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .poker-text {
+            font-family: 'Playfair Display', serif;
+        }
+
+        .modal {
+            backdrop-filter: blur(5px);
+            background: rgba(0,0,0,0.7);
+        }
+
+        /* Scrollbar for Side Panel */
+        .custom-scroll::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scroll::-webkit-scrollbar-track {
+            background: rgba(0,0,0,0.2);
+        }
+        .custom-scroll::-webkit-scrollbar-thumb {
+            background: rgba(255,255,255,0.2);
+            border-radius: 3px;
+        }
+        .custom-scroll::-webkit-scrollbar-thumb:hover {
+            background: rgba(255,255,255,0.3);
+        }
+
+        /* Mini Dice for Target Display */
+        .mini-die {
+            width: 24px;
+            height: 24px;
+            background: #f8fafc;
+            border-radius: 4px;
+            box-shadow: inset 1px 1px 2px rgba(255,255,255,0.8), 1px 1px 2px rgba(0,0,0,0.3);
+            position: relative;
+        }
+        
+        /* Reusing global Face Grid logic but overriding dot size locally */
+        .mini-die [class^="face-"] {
+            padding: 3px; /* Smaller padding */
+        }
+        
+        .mini-die .dot {
+            width: 4px;
+            height: 4px;
+            background: #1e293b;
+            box-shadow: none; /* Simplify shadow for mini size */
+        }
+
+        /* Confetti Canvas */
+        #confettiCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 50;
+        }
+        
+        .fade-in {
+            animation: fadeIn 0.3s ease-out forwards;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body class="h-screen w-screen flex flex-col felt-bg select-none">
+
+    <canvas id="confettiCanvas"></canvas>
+
+    <div id="mainMenu" class="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/80 transition-opacity duration-300">
+        <h1 class="text-6xl text-amber-400 poker-text mb-2 text-shadow-lg text-center drop-shadow-lg">Dice Poker</h1>
+        <div class="flex gap-4 mb-8">
+            <div class="die" onclick="handleMenuDieClick('L')"><div class="face-1 w-full h-full"><div class="dot"></div></div></div>
+            <div class="die" onclick="handleMenuDieClick('R')"><div class="face-5 w-full h-full"><div class="dot"></div><div class="dot"></div><div class="dot"></div><div class="dot"></div><div class="dot"></div></div></div>
+        </div>
+        
+        <div class="space-y-4 w-64">
+            <button onclick="startGame('single')" class="btn-primary w-full py-3 rounded text-xl font-bold tracking-wider">SINGLE PLAYER</button>
+            <button onclick="startGame('coop')" class="btn-primary w-full py-3 rounded text-xl font-bold tracking-wider">CO-OP VS</button>
+            <button onclick="toggleSettings()" class="btn-secondary w-full py-2 rounded text-lg font-bold tracking-wider">SETTINGS</button>
+        </div>
+    </div>
+
+    <div id="settingsModal" class="hidden absolute inset-0 z-30 flex items-center justify-center modal">
+        <div class="bg-slate-800 p-8 rounded-xl border border-slate-600 shadow-2xl w-full max-w-md">
+            <h2 class="text-3xl poker-text text-amber-400 mb-6 text-center border-b border-slate-600 pb-2">Settings</h2>
+            
+            <div class="mb-6">
+                <span class="text-sm text-slate-400 mb-2 block">Table Color</span>
+                <div class="flex justify-between gap-2">
+                    <button onclick="setTableColor('green')" class="w-10 h-10 rounded-full bg-green-800 border-2 border-slate-500 hover:scale-110 transition-transform ring-2 ring-transparent focus:ring-amber-400" aria-label="Green Felt"></button>
+                    <button onclick="setTableColor('blue')" class="w-10 h-10 rounded-full bg-blue-800 border-2 border-slate-500 hover:scale-110 transition-transform ring-2 ring-transparent focus:ring-amber-400" aria-label="Blue Felt"></button>
+                    <button onclick="setTableColor('red')" class="w-10 h-10 rounded-full bg-red-800 border-2 border-slate-500 hover:scale-110 transition-transform ring-2 ring-transparent focus:ring-amber-400" aria-label="Red Felt"></button>
+                    <button onclick="setTableColor('purple')" class="w-10 h-10 rounded-full bg-purple-800 border-2 border-slate-500 hover:scale-110 transition-transform ring-2 ring-transparent focus:ring-amber-400" aria-label="Purple Felt"></button>
+                    <button onclick="setTableColor('black')" class="w-10 h-10 rounded-full bg-slate-800 border-2 border-slate-500 hover:scale-110 transition-transform ring-2 ring-transparent focus:ring-amber-400" aria-label="Black Felt"></button>
+                </div>
+            </div>
+
+            <div class="mb-6 border-t border-slate-600 pt-4">
+                <div class="flex justify-between items-center">
+                    <span class="text-lg">Co-op Players</span>
+                    <div class="flex items-center gap-3 bg-slate-700 rounded-lg p-1">
+                        <button onclick="adjustPlayerCount(-1)" class="w-8 h-8 flex items-center justify-center bg-slate-600 hover:bg-slate-500 rounded font-bold transition-colors">-</button>
+                        <span id="playerCountDisplay" class="text-xl font-bold text-amber-400 w-6 text-center">2</span>
+                        <button onclick="adjustPlayerCount(1)" class="w-8 h-8 flex items-center justify-center bg-slate-600 hover:bg-slate-500 rounded font-bold transition-colors">+</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex justify-between items-center mb-6">
+                <span class="text-lg">Enable Betting/Credits</span>
+                <button id="betToggle" onclick="toggleBetSetting()" class="w-14 h-8 bg-green-600 rounded-full relative transition-colors">
+                    <div class="w-6 h-6 bg-white rounded-full absolute top-1 left-7 transition-all shadow-md"></div>
+                </button>
+            </div>
+
+            <div id="winCountConfig" class="mb-6 opacity-50 pointer-events-none transition-opacity">
+                <p class="text-sm text-slate-400 mb-2">Co-op Win Target (No Bets)</p>
+                <div class="flex gap-2">
+                    <button onclick="setWinTarget(3)" class="win-btn flex-1 py-2 bg-slate-700 rounded border border-slate-600 hover:bg-slate-600 data-[active=true]:bg-amber-600" data-val="3">3</button>
+                    <button onclick="setWinTarget(5)" class="win-btn flex-1 py-2 bg-slate-700 rounded border border-slate-600 hover:bg-slate-600 data-[active=true]:bg-amber-600" data-val="5">5</button>
+                    <button onclick="setWinTarget(10)" class="win-btn flex-1 py-2 bg-slate-700 rounded border border-slate-600 hover:bg-slate-600 data-[active=true]:bg-amber-600" data-val="10">10</button>
+                </div>
+            </div>
+
+            <button onclick="toggleSettings()" class="btn-secondary w-full py-2 rounded text-white font-bold">CLOSE</button>
+        </div>
+    </div>
+
+    <div id="doubleDownModal" class="hidden absolute inset-0 z-40 flex items-center justify-center modal">
+        <div class="bg-slate-900 p-6 rounded-xl border-2 border-red-600 shadow-2xl w-full max-w-sm transform transition-all">
+            <div class="text-center mb-4">
+                <h2 class="text-3xl poker-text text-red-500 mb-1">DOUBLE DOWN</h2>
+                <p class="text-slate-300 text-sm">Bet is doubled. Call your hand.</p>
+                <p class="text-red-400 text-xs font-bold mt-1">WARNING: If you don't get the called hand (or better), you lose everything!</p>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3 mb-6">
+                <button onclick="commitDoubleDown(0)" class="p-3 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded flex flex-col items-center transition-colors hover:border-amber-500 hover:shadow-lg hover:-translate-y-1">
+                    <span class="text-xs text-slate-400">Target</span>
+                    <span class="font-bold text-amber-400">5 of a Kind</span>
+                </button>
+                <button onclick="commitDoubleDown(1)" class="p-3 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded flex flex-col items-center transition-colors hover:border-amber-500 hover:shadow-lg hover:-translate-y-1">
+                    <span class="text-xs text-slate-400">Target</span>
+                    <span class="font-bold text-amber-400">4 of a Kind</span>
+                </button>
+                <button onclick="commitDoubleDown(2)" class="p-3 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded flex flex-col items-center transition-colors hover:border-amber-500 hover:shadow-lg hover:-translate-y-1">
+                    <span class="text-xs text-slate-400">Target</span>
+                    <span class="font-bold text-amber-400">Full House</span>
+                </button>
+                <button onclick="commitDoubleDown(3)" class="p-3 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded flex flex-col items-center transition-colors hover:border-amber-500 hover:shadow-lg hover:-translate-y-1">
+                    <span class="text-xs text-slate-400">Target</span>
+                    <span class="font-bold text-amber-400">Straight</span>
+                </button>
+                <button onclick="commitDoubleDown(4)" class="p-3 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded flex flex-col items-center transition-colors hover:border-amber-500 hover:shadow-lg hover:-translate-y-1">
+                    <span class="text-xs text-slate-400">Target</span>
+                    <span class="font-bold text-amber-400">3 of a Kind</span>
+                </button>
+                <button onclick="commitDoubleDown(5)" class="p-3 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded flex flex-col items-center transition-colors hover:border-amber-500 hover:shadow-lg hover:-translate-y-1">
+                    <span class="text-xs text-slate-400">Target</span>
+                    <span class="font-bold text-amber-400">Two Pair</span>
+                </button>
+            </div>
+            
+            <button onclick="document.getElementById('doubleDownModal').classList.add('hidden')" class="btn-secondary w-full py-2 rounded text-white font-bold">CANCEL</button>
+        </div>
+    </div>
+
+    <!-- Match Win Modal (Extravagant) -->
+    <div id="matchWinModal" class="hidden absolute inset-0 z-50 flex items-center justify-center modal">
+        <div class="bg-slate-900/95 p-10 rounded-2xl border-4 border-amber-500 shadow-[0_0_100px_rgba(245,158,11,0.6)] w-full max-w-lg flex flex-col items-center relative overflow-hidden">
+            <!-- Decorative background glow -->
+            <div class="absolute inset-0 bg-gradient-to-b from-amber-500/10 to-transparent pointer-events-none"></div>
+            
+            <h2 class="text-5xl md:text-6xl poker-text text-amber-400 mb-4 text-center drop-shadow-[0_4px_4px_rgba(0,0,0,0.8)] animate-pulse">CHAMPION!</h2>
+            
+            <div id="matchWinnerName" class="text-3xl md:text-4xl font-bold text-white mb-10 text-center tracking-widest drop-shadow-md">
+                PLAYER 1
+            </div>
+            
+            <div class="flex flex-col sm:flex-row gap-4 w-full relative z-10">
+                <button onclick="quitGame()" class="flex-1 py-4 bg-gradient-to-b from-red-600 to-red-800 border border-red-500 rounded-xl text-white font-bold text-lg tracking-wider shadow-lg hover:scale-105 active:scale-95 transition-all">MENU</button>
+                <button onclick="closeMatchWinModal()" class="flex-1 py-4 bg-gradient-to-b from-slate-600 to-slate-800 border border-slate-500 rounded-xl text-white font-bold text-lg tracking-wider shadow-lg hover:scale-105 active:scale-95 transition-all">VIEW RESULTS</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="secretMenu" class="hidden absolute inset-0 z-40 flex items-center justify-center modal">
+        <div class="bg-slate-900 p-8 rounded-xl border-2 border-amber-500 shadow-2xl w-full max-w-sm transform transition-all scale-100">
+            <h2 class="text-2xl poker-text text-amber-500 mb-4 text-center">Secret Admin Menu</h2>
+            
+            <div class="mb-6">
+                <label class="block text-slate-400 text-sm mb-2">Starting Credits</label>
+                <input type="number" id="startCreditsInput" class="w-full bg-slate-800 border border-slate-600 text-white p-2 rounded text-center text-xl font-bold focus:border-amber-500 outline-none" value="100">
+            </div>
+
+            <div class="flex gap-2">
+                <button onclick="saveSecretSettings()" class="flex-1 py-2 bg-green-700 hover:bg-green-600 rounded text-white font-bold">SAVE</button>
+                <button onclick="closeSecretMenu()" class="flex-1 py-2 bg-red-900 hover:bg-red-800 rounded text-white font-bold">CANCEL</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="gameUI" class="hidden flex-1 flex flex-col relative z-10 w-full h-full overflow-hidden">
+        
+        <!-- Top Bar -->
+        <div class="w-full p-4 flex justify-between items-start bg-black/30 backdrop-blur-sm border-b border-white/10 shrink-0 z-20">
+            <button onclick="quitGame()" class="px-3 py-1 bg-red-900/50 hover:bg-red-900 rounded text-xs text-red-200 border border-red-800 transition-colors">EXIT</button>
+            
+            <div class="text-center">
+                <div id="modeDisplay" class="text-xs text-amber-400 uppercase tracking-widest font-bold">SINGLE PLAYER</div>
+                <div id="scoreDisplay" class="text-xl font-bold text-white mt-1">CREDITS: 100</div>
+            </div>
+
+            <button onclick="toggleSettings()" class="px-3 py-1 bg-slate-700/50 hover:bg-slate-700 rounded text-xs text-slate-300 border border-slate-600 transition-colors">OPTS</button>
+        </div>
+
+        <!-- Main Flex Container -->
+        <div class="flex-1 flex flex-col lg:flex-row w-full gap-4 p-4 overflow-hidden items-stretch">
+            
+            <!-- Game Area (Left/Center) -->
+            <div class="flex-1 flex flex-col items-center justify-center relative min-h-0">
+                <div id="messageArea" class="flex flex-col items-center justify-center text-center mb-4 shrink-0 min-h-[4rem]">
+                    <span id="instructionTextMain" class="text-2xl text-amber-100 drop-shadow-md animate-pulse">Place your bet to start!</span>
+                </div>
+
+                <!-- Revised Target Display (Visual Badge Style) -->
+                <div id="targetDisplay" class="hidden flex flex-col items-center justify-center bg-slate-900/90 px-4 py-2 rounded-lg border border-white/20 mb-4 shrink-0 shadow-xl z-20 fade-in">
+                    <div id="targetLabel" class="text-[10px] text-slate-400 uppercase tracking-wider font-bold mb-1">TO BEAT</div>
+                    <div class="flex items-center gap-3">
+                        <span id="targetValue" class="text-amber-400 font-bold text-sm">--</span>
+                        <div id="targetDice" class="flex gap-1"></div>
+                    </div>
+                </div>
+
+                <div class="flex-1 flex items-center justify-center w-full min-h-[200px]">
+                    <div id="diceContainer" class="grid grid-cols-5 gap-3 sm:gap-6 md:gap-8 transition-all duration-300">
+                    </div>
+                </div>
+
+                <div class="mt-auto w-full max-w-2xl bg-black/40 p-4 rounded-xl backdrop-blur-md border border-white/10 shrink-0">
+                    <div id="betControls" class="flex flex-col items-center mb-4 transition-all">
+                        <div class="flex gap-2 mb-2 overflow-x-auto max-w-full pb-1">
+                             <button onclick="resetBet()" class="px-2 py-1 bg-red-900/80 hover:bg-red-800 rounded text-xs border border-red-700 text-red-100 min-w-[40px]">CLR</button>
+                             <button onclick="addToBet(10)" class="px-2 py-1 bg-slate-700 hover:bg-slate-600 rounded text-xs border border-slate-600 min-w-[40px]">+10</button>
+                             <button onclick="addToBet(50)" class="px-2 py-1 bg-slate-700 hover:bg-slate-600 rounded text-xs border border-slate-600 min-w-[40px]">+50</button>
+                             <button onclick="addToBet(100)" class="px-2 py-1 bg-slate-700 hover:bg-slate-600 rounded text-xs border border-slate-600 min-w-[40px]">+100</button>
+                             <button onclick="addToBet(500)" class="px-2 py-1 bg-slate-700 hover:bg-slate-600 rounded text-xs border border-slate-600 min-w-[40px]">+500</button>
+                             <button onclick="addToBet(1000)" class="px-2 py-1 bg-slate-700 hover:bg-slate-600 rounded text-xs border border-slate-600 min-w-[40px]">+1K</button>
+                             <button onclick="setBet('max')" class="px-2 py-1 bg-amber-700 hover:bg-amber-600 rounded text-xs border border-amber-600 text-amber-100 min-w-[40px]">MAX</button>
+                        </div>
+
+                        <div class="flex justify-center items-center gap-4">
+                            <button onclick="adjustBet(-1)" class="w-10 h-10 rounded-full bg-slate-700 hover:bg-slate-600 flex items-center justify-center font-bold text-xl active:scale-90 transition-transform">-</button>
+                            <div class="bg-black/50 px-6 py-2 rounded border border-slate-600 min-w-[100px] text-center">
+                                <span class="text-xs text-slate-400 block">BET</span>
+                                <span id="currentBet" class="text-xl text-amber-400 font-bold">10</span>
+                            </div>
+                            <button onclick="adjustBet(1)" class="w-10 h-10 rounded-full bg-slate-700 hover:bg-slate-600 flex items-center justify-center font-bold text-xl active:scale-90 transition-transform">+</button>
+                        </div>
+                    </div>
+
+                    <div class="flex gap-4">
+                        <button id="doubleDownBtn" onclick="showDoubleDownMenu()" class="hidden btn-danger w-1/3 py-4 rounded-lg text-lg font-bold tracking-tight leading-tight">DOUBLE<br>DOWN</button>
+                        <button id="mainActionBtn" onclick="handleAction()" class="btn-primary flex-1 py-4 rounded-lg text-2xl font-bold tracking-widest">DEAL</button>
+                    </div>
+                    
+                    <div class="text-center mt-2 text-[10px] text-slate-400">
+                        <span id="instructionText">Click dice to HOLD. Click DEAL to roll.</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Side Panel (Shared for Co-op and Single) -->
+            <div id="sidePanel" class="hidden flex-col w-full lg:w-80 bg-black/60 backdrop-blur-md border border-white/10 rounded-xl overflow-hidden shadow-2xl shrink-0 transition-all duration-300">
+                <!-- Tabs Container -->
+                <div id="panelTabs" class="flex border-b border-white/10 bg-black/40">
+                    <button onclick="switchCoopTab('round')" id="tabRound" class="flex-1 py-3 text-sm font-bold tracking-wider transition-colors text-amber-400 border-b-2 border-amber-400 bg-white/5">CURRENT ROUND</button>
+                    <button onclick="switchCoopTab('history')" id="tabHistory" class="flex-1 py-3 text-sm font-bold tracking-wider transition-colors text-slate-400 border-b-2 border-transparent hover:text-slate-200 hover:bg-white/5">HISTORY</button>
+                </div>
+                
+                <!-- Single Player Title (Alternative to Tabs) -->
+                <div id="singlePlayerTitle" class="hidden border-b border-white/10 bg-black/40 py-3 text-center">
+                    <span class="text-amber-400 font-bold tracking-wider">GAME INFO</span>
+                </div>
+                
+                <!-- Content -->
+                <div id="panelContent" class="flex-1 overflow-y-auto custom-scroll p-4 space-y-3 relative">
+                     <!-- Populated by JS -->
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Absolute Payout Table (Hidden on LG when panel is visible) -->
+    <div id="payoutTable" class="hidden lg:hidden absolute top-20 right-4 w-48 bg-black/80 backdrop-blur text-xs p-2 rounded border border-white/10 z-10 pointer-events-none">
+        <h3 class="text-amber-500 border-b border-white/20 mb-1 pb-1">PAYOUTS (x Bet)</h3>
+        <div class="flex justify-between"><span>5 of a Kind</span><span class="text-green-400">50</span></div>
+        <div class="flex justify-between"><span>4 of a Kind</span><span class="text-green-400">20</span></div>
+        <div class="flex justify-between"><span>Full House</span><span class="text-green-400">10</span></div>
+        <div class="flex justify-between"><span>Straight</span><span class="text-green-400">8</span></div>
+        <div class="flex justify-between"><span>3 of a Kind</span><span class="text-green-400">3</span></div>
+        <div class="flex justify-between"><span>Two Pair</span><span class="text-green-400">2</span></div>
+    </div>
+
+    <script>
+        // --- Game Config & State ---
+        const config = {
+            betsEnabled: true,
+            winTarget: 3, // 3, 5, or 10
+            startingCredits: 100,
+            defaultBet: 10,
+            tableColor: 'green',
+            playerCount: 2
+        };
+
+        // Persistent Bankroll for Single Player
+        let singlePlayerBank = 100;
+
+        const state = {
+            mode: 'menu', // menu, single, coop
+            phase: 'betting', // betting, roll1, hold, result, gameover
+            currentPlayer: 1,
+            turnStep: 0, // 0=start, 1=rolled once, 2=finished
+            credits: [100, 100], // Array for N players
+            wins: [0, 0],       // Array for N players
+            hands: [],          // Array to store hands for current round
+            matchHistory: [],   // Array of objects
+            activeTab: 'round', // 'round' or 'history'
+            bet: 10,
+            dice: [1, 2, 3, 4, 5],
+            held: [false, false, false, false, false],
+            doubleDownRank: null // stores the rank user called if they double down
+        };
+
+        // DOM Elements
+        const els = {
+            mainMenu: document.getElementById('mainMenu'),
+            gameUI: document.getElementById('gameUI'),
+            settingsModal: document.getElementById('settingsModal'),
+            doubleDownModal: document.getElementById('doubleDownModal'),
+            matchWinModal: document.getElementById('matchWinModal'),
+            matchWinnerName: document.getElementById('matchWinnerName'),
+            diceContainer: document.getElementById('diceContainer'),
+            betToggle: document.getElementById('betToggle'),
+            winCountConfig: document.getElementById('winCountConfig'),
+            playerCountDisplay: document.getElementById('playerCountDisplay'),
+            modeDisplay: document.getElementById('modeDisplay'),
+            scoreDisplay: document.getElementById('scoreDisplay'),
+            messageArea: document.getElementById('messageArea'),
+            instructionTextMain: document.getElementById('instructionTextMain'),
+            betControls: document.getElementById('betControls'),
+            currentBet: document.getElementById('currentBet'),
+            mainActionBtn: document.getElementById('mainActionBtn'),
+            doubleDownBtn: document.getElementById('doubleDownBtn'),
+            targetDisplay: document.getElementById('targetDisplay'),
+            targetLabel: document.getElementById('targetLabel'),
+            targetValue: document.getElementById('targetValue'),
+            targetDice: document.getElementById('targetDice'),
+            payoutTable: document.getElementById('payoutTable'),
+            instructionText: document.getElementById('instructionText'),
+            confettiCanvas: document.getElementById('confettiCanvas'),
+            secretMenu: document.getElementById('secretMenu'),
+            startCreditsInput: document.getElementById('startCreditsInput'),
+            sidePanel: document.getElementById('sidePanel'),
+            panelContent: document.getElementById('panelContent'),
+            panelTabs: document.getElementById('panelTabs'),
+            singlePlayerTitle: document.getElementById('singlePlayerTitle'),
+            tabRound: document.getElementById('tabRound'),
+            tabHistory: document.getElementById('tabHistory')
+        };
+
+        // --- Core Logic ---
+
+        // Secret Code Logic
+        const secretCode = ['L', 'L', 'R', 'R', 'L', 'R', 'L'];
+        let secretProgress = [];
+
+        function handleMenuDieClick(side) {
+            // Check if adding this move matches the sequence
+            const currentIndex = secretProgress.length;
+            
+            if (side === secretCode[currentIndex]) {
+                secretProgress.push(side);
+            } else {
+                // Mistake made. Reset. Check if this click starts a new sequence.
+                secretProgress = (side === secretCode[0]) ? [side] : [];
+            }
+
+            if (secretProgress.length === secretCode.length) {
+                openSecretMenu();
+                secretProgress = [];
+            }
+        }
+
+        function openSecretMenu() {
+            els.startCreditsInput.value = config.startingCredits;
+            els.secretMenu.classList.remove('hidden');
+        }
+
+        function closeSecretMenu() {
+            els.secretMenu.classList.add('hidden');
+        }
+
+        function saveSecretSettings() {
+            const val = parseInt(els.startCreditsInput.value);
+            if (val > 0) {
+                config.startingCredits = val;
+                closeSecretMenu();
+                // Visual feedback
+                const title = document.querySelector('#mainMenu h1');
+                title.style.color = '#22c55e'; // Green flash
+                setTimeout(() => title.style.color = '', 500);
+            }
+        }
+
+        function init() {
+            renderDice();
+            setTableColor(config.tableColor); // Set initial color
+            updateSettingsUI();
+            
+            // Canvas resize listener
+            window.addEventListener('resize', resizeCanvas);
+            resizeCanvas();
+        }
+
+        function toggleSettings() {
+            els.settingsModal.classList.toggle('hidden');
+        }
+
+        function setTableColor(color) {
+            config.tableColor = color;
+            // Remove all theme classes
+            document.body.classList.remove('theme-green', 'theme-blue', 'theme-red', 'theme-purple', 'theme-black');
+            // Add selected theme
+            document.body.classList.add(`theme-${color}`);
+        }
+
+        function toggleBetSetting() {
+            config.betsEnabled = !config.betsEnabled;
+            updateSettingsUI();
+        }
+
+        function setWinTarget(val) {
+            config.winTarget = val;
+            updateSettingsUI();
+        }
+
+        function adjustPlayerCount(delta) {
+            const newVal = config.playerCount + delta;
+            if (newVal >= 2 && newVal <= 6) {
+                config.playerCount = newVal;
+                updateSettingsUI();
+            }
+        }
+
+        function updateSettingsUI() {
+            // Bet Toggle Styling
+            const toggleDot = els.betToggle.querySelector('div');
+            if (config.betsEnabled) {
+                els.betToggle.classList.remove('bg-slate-600');
+                els.betToggle.classList.add('bg-green-600');
+                toggleDot.style.left = '28px'; // approx calc
+                els.winCountConfig.classList.add('opacity-50', 'pointer-events-none');
+            } else {
+                els.betToggle.classList.add('bg-slate-600');
+                els.betToggle.classList.remove('bg-green-600');
+                toggleDot.style.left = '4px';
+                els.winCountConfig.classList.remove('opacity-50', 'pointer-events-none');
+            }
+
+            // Win Count Buttons
+            document.querySelectorAll('.win-btn').forEach(btn => {
+                const val = parseInt(btn.dataset.val);
+                if (val === config.winTarget) {
+                    btn.classList.add('bg-amber-600', 'text-white');
+                    btn.classList.remove('bg-slate-700');
+                } else {
+                    btn.classList.remove('bg-amber-600', 'text-white');
+                    btn.classList.add('bg-slate-700');
+                }
+            });
+
+            // Player Count
+            els.playerCountDisplay.innerText = config.playerCount;
+        }
+
+        function startGame(mode) {
+            state.mode = mode;
+            
+            if (mode === 'single') {
+                // Persistent Bankroll Logic
+                // If they ran out of chips, reset to default. Otherwise keep saving.
+                if (singlePlayerBank <= 0) {
+                    singlePlayerBank = config.startingCredits;
+                }
+                state.credits = [singlePlayerBank]; 
+            } else {
+                // Co-op always restarts
+                state.credits = new Array(config.playerCount).fill(config.startingCredits);
+            }
+
+            // Initialize other state arrays
+            state.wins = new Array(mode === 'single' ? 1 : config.playerCount).fill(0);
+            state.hands = new Array(mode === 'single' ? 1 : config.playerCount).fill(null);
+            state.matchHistory = []; // Clear history on new start (even if resuming chips)
+            state.bet = config.defaultBet;
+            
+            els.mainMenu.classList.add('hidden');
+            els.gameUI.classList.remove('hidden');
+            els.matchWinModal.classList.add('hidden'); // Ensure hidden on start
+            
+            // Manage Side Panel and Payout Table visibility
+            els.sidePanel.classList.remove('hidden');
+            els.sidePanel.classList.add('lg:flex'); // Ensure flex on desktop
+            
+            if (mode === 'single') {
+                els.payoutTable.classList.remove('hidden'); // Show floating on mobile
+                els.panelTabs.classList.add('hidden');
+                els.singlePlayerTitle.classList.remove('hidden');
+            } else {
+                els.payoutTable.classList.add('hidden'); // Hide floating always in coop
+                els.panelTabs.classList.remove('hidden');
+                els.singlePlayerTitle.classList.add('hidden');
+                switchCoopTab('round');
+            }
+
+            resetRound();
+        }
+
+        function quitGame() {
+            if (state.mode === 'single') {
+                singlePlayerBank = state.credits[0];
+            }
+            els.gameUI.classList.add('hidden');
+            els.mainMenu.classList.remove('hidden');
+            els.matchWinModal.classList.add('hidden');
+        }
+
+        function resetRound() {
+            state.phase = 'betting';
+            state.currentPlayer = 1;
+            state.held = [false, false, false, false, false];
+            state.turnStep = 0;
+            state.hands = new Array(config.playerCount).fill(null);
+            
+            // Revert Double Down bet increase for next round
+            if (state.doubleDownRank !== null) {
+                state.bet = Math.floor(state.bet / 2);
+                state.doubleDownRank = null;
+            }
+
+            // Ensure bet is valid for current credits (Single Player)
+            if (state.mode === 'single' && config.betsEnabled) {
+                // Ensure bet doesn't exceed credits
+                if (state.bet > state.credits[0]) state.bet = Math.max(10, state.credits[0]);
+                // Ensure min bet if possible
+                if (state.credits[0] >= 10 && state.bet < 10) state.bet = 10;
+                // If credits < 10, bet is whatever is left
+                if (state.credits[0] < 10 && state.credits[0] > 0) state.bet = state.credits[0];
+            } else if (state.mode === 'single' && !config.betsEnabled) {
+                // Should not happen really in logic but for safety
+                state.bet = config.defaultBet; 
+            }
+
+            // Reset UI
+            els.betControls.classList.toggle('hidden', !config.betsEnabled);
+            els.targetDisplay.classList.add('hidden');
+            els.doubleDownBtn.classList.add('hidden'); // Ensure hidden on reset
+            
+            updateScoreDisplay();
+            updateTurnIndicator(); // Will essentially do nothing in Co-op but good to keep consistent
+            renderSidePanel(); // Update side panel
+            updateBetDisplay(); // Explicitly sync UI with persisted bet state
+            
+            setMessage(config.betsEnabled ? "Place your Bet!" : "Ready to Roll?");
+            
+            // Set button text
+            els.mainActionBtn.innerText = config.betsEnabled ? "DEAL" : "ROLL";
+            els.mainActionBtn.disabled = false;
+            
+            // Reset dice visual
+            state.dice = [1,2,3,4,5]; // Dummy initial state
+            renderDice();
+            
+            // Check Game Over conditions
+            if (config.betsEnabled) {
+                if (state.mode === 'single' && state.credits[0] <= 0) {
+                      setMessage("GAME OVER! Out of Credits.");
+                      els.mainActionBtn.innerText = "MENU";
+                      state.phase = 'gameover';
+                }
+            }
+        }
+
+        function adjustBet(amount) {
+            if (state.phase !== 'betting') return;
+            const limit = Math.min(...state.credits);
+            
+            const newBet = state.bet + amount;
+            // Allow bet to go down to 1 if needed, but standard logic prefers 10 as min unless credits low.
+            // But since we are doing +/- 1, we should allow flexibility.
+            if (newBet >= 1 && newBet <= limit) {
+                state.bet = newBet;
+                updateBetDisplay();
+            }
+        }
+
+        // New function to add to the current bet
+        function addToBet(amount) {
+            if (state.phase !== 'betting') return;
+            let limit = state.mode === 'single' ? state.credits[0] : Math.min(...state.credits);
+            
+            let newBet = state.bet + amount;
+            if (newBet > limit) newBet = limit;
+            
+            state.bet = newBet;
+            updateBetDisplay();
+        }
+
+        // New function to reset bet
+        function resetBet() {
+            if (state.phase !== 'betting') return;
+            state.bet = config.defaultBet;
+            updateBetDisplay();
+        }
+
+        function setBet(val) {
+            if (state.phase !== 'betting') return;
+            
+            let limit = state.mode === 'single' ? state.credits[0] : Math.min(...state.credits);
+            
+            let newBet = val;
+            if (val === 'max') newBet = limit;
+            
+            if (newBet > limit) newBet = limit;
+            if (newBet < 10) newBet = 10;
+            
+            state.bet = newBet;
+            updateBetDisplay();
+        }
+
+        function updateBetDisplay() {
+            els.currentBet.innerText = state.bet;
+        }
+
+        // --- Double Down Logic ---
+
+        function showDoubleDownMenu() {
+            if (state.phase !== 'hold') return;
+            
+            // Check if player has enough credits to double
+            // state.credits[0] already had state.bet deducted.
+            // We need another state.bet amount.
+            if (state.credits[0] < state.bet) {
+                setMessage("Not enough credits to Double Down!");
+                return;
+            }
+
+            els.doubleDownModal.classList.remove('hidden');
+        }
+
+        function commitDoubleDown(rank) {
+            // Rank mapping: 0=5K, 1=4K, 2=FH, 3=Str, 4=3K, 5=2Pr
+            // Deduct the additional bet
+            state.credits[0] -= state.bet;
+            state.bet = state.bet * 2;
+            state.doubleDownRank = rank;
+
+            updateScoreDisplay();
+            updateBetDisplay();
+            els.doubleDownModal.classList.add('hidden');
+            els.doubleDownBtn.classList.add('hidden'); // Hide button after use
+            
+            const handNames = ["5 of a Kind", "4 of a Kind", "Full House", "Straight", "3 of a Kind", "Two Pair"];
+            setMessage(`Calling...`, handNames[rank]);
+            
+            // Show badge instead of simple text for double down call
+            els.targetLabel.innerText = 'CALLING';
+            els.targetValue.innerText = handNames[rank];
+            els.targetDice.innerHTML = ''; // No dice for calling
+            els.targetDisplay.classList.remove('hidden');
+        }
+
+
+        function handleAction() {
+            if (state.phase === 'gameover') {
+                quitGame();
+                return;
+            }
+
+            if (state.phase === 'betting') {
+                // Deduct bets
+                if (config.betsEnabled) {
+                    if (state.mode === 'single') {
+                        state.credits[0] -= state.bet;
+                    } else {
+                        // All players put in the bet
+                        for(let i=0; i<config.playerCount; i++) {
+                            state.credits[i] -= state.bet;
+                        }
+                    }
+                }
+                updateScoreDisplay();
+                startTurn();
+                return;
+            }
+
+            if (state.phase === 'roll1' || state.phase === 'roll2' || state.phase === 'hold') {
+                rollDice();
+            } else if (state.phase === 'next_player') {
+                state.currentPlayer++;
+                state.turnStep = 0;
+                state.held = [false, false, false, false, false];
+                startTurn();
+            } else if (state.phase === 'resolve') {
+                resetRound();
+            }
+        }
+
+        function startTurn() {
+            state.turnStep = 1;
+            state.phase = 'roll1';
+            state.held = [false, false, false, false, false];
+            renderDice(); 
+            updateTurnIndicator();
+            renderSidePanel(); // Ensure UI updates immediately when turn starts
+
+            // "To Beat" Logic for Co-op
+            if (state.mode === 'coop' && state.currentPlayer > 1) {
+                // Find best hand so far
+                const bestSoFar = getBestHandSoFar();
+                if (bestSoFar) {
+                    els.targetLabel.innerText = 'TO BEAT';
+                    els.targetValue.innerText = bestSoFar.name;
+                    
+                    // Render mini dice
+                    els.targetDice.innerHTML = '';
+                    bestSoFar.dice.forEach(d => {
+                        const mini = document.createElement('div');
+                        mini.className = 'mini-die';
+                        // Reusing face grid logic with correct classes
+                        mini.innerHTML = `<div class="face-grid face-${d} w-full h-full">${Array(d).fill('<div class="dot"></div>').join('')}</div>`;
+                        els.targetDice.appendChild(mini);
+                    });
+                    
+                    els.targetDisplay.classList.remove('hidden');
+                }
+            } else if(state.mode !== 'single' || state.doubleDownRank === null) {
+                els.targetDisplay.classList.add('hidden');
+            }
+
+            setMessage(state.mode === 'coop' ? `Player ${state.currentPlayer}'s Roll` : "Rolling...");
+            rollDice();
+        }
+        
+        function getBestHandSoFar() {
+            let bestH = null;
+            // Check hands of players previous to current
+            for(let i=0; i < state.currentPlayer - 1; i++) {
+                if(state.hands[i]) {
+                    if(!bestH || compareHands(state.hands[i], bestH) > 0) {
+                        bestH = state.hands[i];
+                    }
+                }
+            }
+            return bestH;
+        }
+
+        function compareHands(h1, h2) {
+            // Returns 1 if h1 > h2, -1 if h2 > h1, 0 if tie
+            if (h1.rank < h2.rank) return 1; // Lower rank index is better
+            if (h2.rank < h1.rank) return -1;
+            
+            for (let i = 0; i < h1.compareVals.length; i++) {
+                if (h1.compareVals[i] > h2.compareVals[i]) return 1;
+                if (h2.compareVals[i] > h1.compareVals[i]) return -1;
+            }
+            return 0;
+        }
+
+        function rollDice() {
+            els.mainActionBtn.disabled = true;
+            els.doubleDownBtn.classList.add('hidden'); // Hide during roll
+            els.instructionText.innerText = "Rolling...";
+
+            // Visual Animation
+            const diceEls = els.diceContainer.children;
+            for (let i = 0; i < 5; i++) {
+                if (!state.held[i]) {
+                    diceEls[i].classList.add('rolling');
+                }
+            }
+
+            // Delay for result
+            setTimeout(() => {
+                for (let i = 0; i < 5; i++) {
+                    if (!state.held[i]) {
+                        state.dice[i] = Math.floor(Math.random() * 6) + 1;
+                        diceEls[i].classList.remove('rolling');
+                    }
+                }
+                renderDice();
+
+                // Logic after roll
+                if (state.turnStep === 1) {
+                    state.phase = 'hold';
+                    state.turnStep = 2;
+                    setMessage("Select Dice to Hold"); // Default, will update with hand below
+                    els.mainActionBtn.innerText = "ROLL AGAIN";
+                    els.mainActionBtn.disabled = false;
+                    els.instructionText.innerText = "Click dice to keep them. Click ROLL AGAIN to finish hand.";
+                    
+                    const ev = evaluateHand(state.dice);
+                    
+                    // Show double down button only in Single Player, if betting is on, and not already doubled
+                    if (state.mode === 'single' && config.betsEnabled && state.doubleDownRank === null) {
+                        // Also check if they have funds
+                        if (state.credits[0] >= state.bet) {
+                            els.doubleDownBtn.classList.remove('hidden');
+                        }
+                    }
+
+                    if (state.doubleDownRank !== null) {
+                          setMessage(`Called: ${getHandName(state.doubleDownRank)}`);
+                    } else {
+                          // Enhanced Current Hand Display
+                          setMessage(null, ev.name);
+                    }
+
+                } else if (state.turnStep === 2) {
+                    endTurn();
+                }
+            }, 600);
+        }
+
+        function toggleHold(index) {
+            if (state.phase !== 'hold') return;
+            state.held[index] = !state.held[index];
+            renderDice();
+        }
+
+        function endTurn() {
+            const result = evaluateHand(state.dice);
+            
+            if (state.mode === 'single') {
+                // Calculate Payout
+                let winAmount = 0;
+                let winMsg = `You got: ${result.name}`;
+                let finalWin = 0;
+                
+                if (config.betsEnabled) {
+                    const multiplier = getMultiplier(result.rank);
+                    winAmount = state.bet * multiplier;
+                    
+                    // Double Down Logic Check
+                    if (state.doubleDownRank !== null) {
+                        // User called a hand. 
+                        // If Result Rank is > DoubleDownRank (e.g. got rank 5, called rank 4), they lose.
+                        // Remember: Lower rank index is better.
+                        if (result.rank > state.doubleDownRank) {
+                            winAmount = 0;
+                            winMsg = `${result.name}. Missed call. LOST BET.`;
+                        } else {
+                             // Hit the call or better
+                             winMsg = `${result.name}! Called it! Won ${winAmount}!`;
+                        }
+                    } else if (winAmount > 0) {
+                         winMsg = `${result.name}! Won ${winAmount} credits!`;
+                    } else {
+                        winMsg = `${result.name}. Better luck next time.`;
+                    }
+
+                    finalWin = winAmount;
+                    if (winAmount > 0) {
+                        state.credits[0] += winAmount;
+                        spawnConfetti();
+                    }
+                } else {
+                      if (result.rank <= 6) spawnConfetti();
+                }
+                
+                // Add to history
+                state.matchHistory.unshift({
+                    hand: result.name,
+                    win: finalWin,
+                    bet: state.bet
+                });
+                renderSidePanel();
+
+                state.phase = 'resolve';
+                setMessage(winMsg);
+                updateScoreDisplay();
+                els.mainActionBtn.innerText = "NEW HAND";
+                els.mainActionBtn.disabled = false;
+                els.doubleDownBtn.classList.add('hidden');
+
+            } else {
+                // Co-op Logic
+                // Save Hand
+                state.hands[state.currentPlayer - 1] = { ...result, dice: [...state.dice] };
+                
+                // Update Co-op Panel UI immediately after turn
+                renderSidePanel();
+
+                if (state.currentPlayer < config.playerCount) {
+                    // Next Player
+                    state.phase = 'next_player';
+                    setMessage(`Player ${state.currentPlayer + 1} Ready?`, `P${state.currentPlayer}: ${result.name}`);
+                    els.mainActionBtn.innerText = `START P${state.currentPlayer + 1}`;
+                    els.mainActionBtn.disabled = false;
+                } else {
+                    // All players done
+                    determineCoopWinner();
+                }
+            }
+        }
+
+        function determineCoopWinner() {
+            let winningIndices = [0];
+            
+            // Compare everyone against the current winner(s)
+            for(let i=1; i < config.playerCount; i++) {
+                const comparison = compareHands(state.hands[i], state.hands[winningIndices[0]]);
+                if (comparison > 0) {
+                    // New sole winner
+                    winningIndices = [i];
+                } else if (comparison === 0) {
+                    // Tie
+                    winningIndices.push(i);
+                }
+            }
+
+            let msg = "";
+            let logEntry = {};
+            
+            if (winningIndices.length === 1) {
+                const winnerIdx = winningIndices[0];
+                const winnerNum = winnerIdx + 1;
+                msg = `Player ${winnerNum} Wins!`;
+                state.wins[winnerIdx]++;
+                
+                // Log History
+                logEntry = {
+                    winner: `Player ${winnerNum}`,
+                    hand: state.hands[winnerIdx].name,
+                    isTie: false
+                };
+
+                if (config.betsEnabled) {
+                    // Winner takes pot (bet * playerCount)
+                    const pot = state.bet * config.playerCount;
+                    state.credits[winnerIdx] += pot;
+                }
+                spawnConfetti();
+            } else {
+                // Tie
+                const winnerNames = winningIndices.map(i => `P${i+1}`).join(' & ');
+                msg = `Tie between ${winnerNames}!`;
+
+                // Log History
+                logEntry = {
+                    winner: `Tie: ${winningIndices.map(i=>`P${i+1}`).join(',')}`,
+                    hand: state.hands[winningIndices[0]].name, // Hands are equal
+                    isTie: true
+                };
+                
+                if (config.betsEnabled) {
+                    // Split pot
+                    const pot = state.bet * config.playerCount;
+                    const split = Math.floor(pot / winningIndices.length);
+                    winningIndices.forEach(idx => {
+                        state.credits[idx] += split;
+                    });
+                }
+            }
+            
+            state.matchHistory.unshift(logEntry); // Add to start of array
+            renderSidePanel();
+
+            updateScoreDisplay();
+            state.phase = 'resolve';
+            
+            // Check Match Win Condition (Bets Off mode)
+            if (!config.betsEnabled) {
+                // Check if anyone reached target
+                const matchWinners = state.wins.map((w, i) => w >= config.winTarget ? i+1 : null).filter(x => x);
+                
+                if (matchWinners.length > 0) {
+                    msg = `PLAYER ${matchWinners.join('&')} WINS MATCH!`;
+                    state.phase = 'gameover';
+                    els.mainActionBtn.innerText = "MENU";
+                    showMatchWinModal(matchWinners); // New: Trigger modal
+                } else {
+                    els.mainActionBtn.innerText = "NEXT ROUND";
+                }
+            } else {
+                 els.mainActionBtn.innerText = "NEXT ROUND";
+            }
+            
+            setMessage(msg);
+            els.mainActionBtn.disabled = false;
+        }
+
+        // --- Extravagant Win Modal Logic ---
+        function showMatchWinModal(winners) {
+            const names = winners.map(w => `PLAYER ${w}`).join(' & ');
+            els.matchWinnerName.innerText = names;
+            els.matchWinModal.classList.remove('hidden');
+            spawnConfetti(); // Extra confetti for the modal
+        }
+
+        function closeMatchWinModal() {
+            els.matchWinModal.classList.add('hidden');
+        }
+        
+        // --- Side Panel Logic ---
+        function switchCoopTab(tabName) {
+            state.activeTab = tabName;
+            
+            // Update UI Styles
+            if (tabName === 'round') {
+                els.tabRound.classList.replace('text-slate-400', 'text-amber-400');
+                els.tabRound.classList.replace('border-transparent', 'border-amber-400');
+                els.tabRound.classList.replace('hover:bg-white/5', 'bg-white/5');
+                
+                els.tabHistory.classList.replace('text-amber-400', 'text-slate-400');
+                els.tabHistory.classList.replace('border-amber-400', 'border-transparent');
+                els.tabHistory.classList.replace('bg-white/5', 'hover:bg-white/5');
+            } else {
+                els.tabHistory.classList.replace('text-slate-400', 'text-amber-400');
+                els.tabHistory.classList.replace('border-transparent', 'border-amber-400');
+                els.tabHistory.classList.replace('hover:bg-white/5', 'bg-white/5');
+
+                els.tabRound.classList.replace('text-amber-400', 'text-slate-400');
+                els.tabRound.classList.replace('border-amber-400', 'border-transparent');
+                els.tabRound.classList.replace('bg-white/5', 'hover:bg-white/5');
+            }
+            
+            renderSidePanel();
+        }
+
+        function renderSidePanel() {
+            if (state.mode === 'single') {
+                 // Single Player Layout: Payouts + History
+                 let html = '';
+                 
+                 // Payout Table (Integrated)
+                 html += `
+                    <div class="bg-black/40 rounded p-2 mb-4 border border-white/5 text-xs">
+                         <div class="text-amber-500 font-bold mb-1 border-b border-white/10 pb-1">PAYOUTS (x Bet)</div>
+                         <div class="space-y-1">
+                            <div class="flex justify-between"><span>5 of a Kind</span><span class="text-green-400">50</span></div>
+                            <div class="flex justify-between"><span>4 of a Kind</span><span class="text-green-400">20</span></div>
+                            <div class="flex justify-between"><span>Full House</span><span class="text-green-400">10</span></div>
+                            <div class="flex justify-between"><span>Straight</span><span class="text-green-400">8</span></div>
+                            <div class="flex justify-between"><span>3 of a Kind</span><span class="text-green-400">3</span></div>
+                            <div class="flex justify-between"><span>Two Pair</span><span class="text-green-400">2</span></div>
+                         </div>
+                    </div>
+                 `;
+
+                 // History List
+                 html += `<div class="text-slate-400 text-xs font-bold mb-2 uppercase tracking-wider">Recent Hands</div>`;
+                 
+                 if (state.matchHistory.length === 0) {
+                     html += '<div class="text-center text-slate-500 italic text-sm">No games played yet.</div>';
+                 } else {
+                     state.matchHistory.forEach((entry, idx) => {
+                        const isWin = entry.win > 0;
+                        // Conditional rendering based on config.betsEnabled
+                        const betInfo = config.betsEnabled ? `<div class="text-xs text-slate-400">Bet: ${entry.bet}</div>` : '';
+                        const winInfo = config.betsEnabled ? `<div class="font-bold ${isWin ? 'text-green-400' : 'text-slate-500'}">${isWin ? '+' + entry.win : '0'}</div>` : '';
+                        
+                        html += `
+                            <div class="bg-slate-800/50 rounded p-2 border border-white/5 mb-2 flex justify-between items-center">
+                                <div>
+                                    <div class="font-bold text-white text-sm">${entry.hand}</div>
+                                    ${betInfo}
+                                </div>
+                                <div class="text-right">
+                                    ${winInfo}
+                                </div>
+                            </div>
+                        `; 
+                     });
+                 }
+                 els.panelContent.innerHTML = html;
+                 return;
+            }
+
+            // Co-op Layout
+            if (state.activeTab === 'round') {
+                // Determine leaders for Crown logic
+                let leaderHand = null;
+                let leadingIndices = [];
+                
+                for(let i=0; i<state.hands.length; i++) {
+                    if (!state.hands[i]) continue;
+                    
+                    if (!leaderHand) {
+                        leaderHand = state.hands[i];
+                        leadingIndices = [i];
+                    } else {
+                        const result = compareHands(state.hands[i], leaderHand);
+                        if (result > 0) {
+                            leaderHand = state.hands[i];
+                            leadingIndices = [i];
+                        } else if (result === 0) {
+                            leadingIndices.push(i);
+                        }
+                    }
+                }
+
+                // Render Current Round
+                let html = '';
+                for (let i = 0; i < config.playerCount; i++) {
+                    const hand = state.hands[i];
+                    const isCurrent = (state.currentPlayer === i + 1) && state.phase !== 'resolve';
+                    const isDone = !!hand;
+                    const isActiveClass = isCurrent ? 'bg-gradient-to-r from-amber-900/40 to-transparent border-amber-500/50 ring-1 ring-amber-500/50' : '';
+                    
+                    const isLeader = leadingIndices.includes(i);
+                    const crownHtml = isLeader ? '<span class="text-xl ml-auto animate-pulse" title="Current Leader">👑</span>' : '';
+                    
+                    html += `
+                        <div class="bg-slate-800/50 rounded-lg p-3 border border-white/5 ${isActiveClass}">
+                            <div class="flex justify-between items-center mb-1">
+                                <span class="font-bold text-amber-500">Player ${i+1}</span>
+                                ${crownHtml}
+                                ${!isLeader && isCurrent ? '<span class="text-xs text-green-400 animate-pulse ml-auto">PLAYING</span>' : ''}
+                                ${!isLeader && isDone ? '<span class="text-xs text-slate-400 ml-auto">DONE</span>' : ''}
+                            </div>
+                    `;
+                    
+                    if (hand) {
+                        html += `
+                            <div class="text-white text-sm font-bold mb-2">${hand.name}</div>
+                            <div class="flex gap-1">
+                                ${hand.dice.map(d => `<div class="w-6 h-6 bg-slate-200 rounded text-black flex items-center justify-center text-xs font-bold">${d}</div>`).join('')}
+                            </div>
+                        `;
+                    } else {
+                         html += `
+                            <div class="text-slate-500 text-sm italic">Waiting...</div>
+                        `;
+                    }
+                    html += `</div>`;
+                }
+                els.panelContent.innerHTML = html;
+            } else {
+                // Render History
+                if (state.matchHistory.length === 0) {
+                    els.panelContent.innerHTML = '<div class="text-center text-slate-500 italic mt-4">No history yet.</div>';
+                    return;
+                }
+                
+                let html = '';
+                state.matchHistory.forEach((entry, idx) => {
+                     html += `
+                        <div class="bg-slate-800/50 rounded-lg p-3 border border-white/5 flex items-center gap-3">
+                            <div class="text-xs text-slate-500 font-mono">#${state.matchHistory.length - idx}</div>
+                            <div>
+                                <div class="font-bold ${entry.isTie ? 'text-blue-400' : 'text-green-400'}">${entry.winner}</div>
+                                <div class="text-xs text-slate-300">${entry.hand}</div>
+                            </div>
+                        </div>
+                    `;
+                });
+                els.panelContent.innerHTML = html;
+            }
+        }
+
+        // --- Logic: Poker Hand Eval ---
+        // Ranks: 0: 5ofK, 1: 4ofK, 2: FH, 3: Str, 4: 3ofK, 5: 2Pr, 6: Pr, 7: High
+        function evaluateHand(dice) {
+            // Frequency map
+            const counts = {};
+            dice.forEach(d => counts[d] = (counts[d] || 0) + 1);
+            
+            // Group faces by frequency for precise comparison
+            const grouped = { 5:[], 4:[], 3:[], 2:[], 1:[] };
+            Object.keys(counts).forEach(faceStr => {
+                const face = parseInt(faceStr);
+                const count = counts[face];
+                grouped[count].push(face);
+            });
+            
+            // Sort grouped faces descending
+            Object.keys(grouped).forEach(k => grouped[k].sort((a,b) => b-a));
+
+            const isStraight = (arr) => {
+                const s = [...arr].sort((a,b)=>a-b).join('');
+                return s === '12345' || s === '23456';
+            };
+
+            // Rank 0: 5 of Kind
+            if (grouped[5].length > 0) {
+                return { rank: 0, name: "Five of a Kind", compareVals: [grouped[5][0]] };
+            }
+
+            // Rank 1: 4 of Kind
+            if (grouped[4].length > 0) {
+                return { rank: 1, name: "Four of a Kind", compareVals: [grouped[4][0], grouped[1][0]] };
+            }
+
+            // Rank 2: Full House
+            if (grouped[3].length > 0 && grouped[2].length > 0) {
+                return { rank: 2, name: "Full House", compareVals: [grouped[3][0], grouped[2][0]] };
+            }
+
+            // Rank 3: Straight
+            if (isStraight(dice)) {
+                const high = Math.max(...dice);
+                return { rank: 3, name: "Straight", compareVals: [high] };
+            }
+
+            // Rank 4: 3 of Kind
+            if (grouped[3].length > 0) {
+                return { rank: 4, name: "Three of a Kind", compareVals: [grouped[3][0], ...grouped[1]] };
+            }
+
+            // Rank 5: Two Pair
+            if (grouped[2].length === 2) {
+                return { rank: 5, name: "Two Pair", compareVals: [grouped[2][0], grouped[2][1], grouped[1][0]] };
+            }
+
+            // Rank 6: Pair
+            if (grouped[2].length === 1) {
+                return { rank: 6, name: "Pair", compareVals: [grouped[2][0], ...grouped[1]] };
+            }
+
+            // Rank 7: High Card
+            return { rank: 7, name: "High Card", compareVals: grouped[1] };
+        }
+
+        function getHandName(rank) {
+            const names = ["Five of a Kind", "Four of a Kind", "Full House", "Straight", "Three of a Kind", "Two Pair", "Pair", "High Card"];
+            return names[rank] || "Unknown";
+        }
+
+        function getMultiplier(rank) {
+            const table = { 0: 50, 1: 20, 2: 10, 3: 8, 4: 3, 5: 2 };
+            return table[rank] || 0;
+        }
+
+        // --- Rendering ---
+
+        function renderDice() {
+            els.diceContainer.innerHTML = '';
+            state.dice.forEach((val, idx) => {
+                const die = document.createElement('div');
+                die.className = `die ${state.held[idx] ? 'held' : ''}`;
+                die.onclick = () => toggleHold(idx);
+                die.innerHTML = getFaceHTML(val);
+                els.diceContainer.appendChild(die);
+            });
+        }
+
+        function getFaceHTML(val) {
+            let dots = '';
+            for(let i=0; i<val; i++) dots += '<div class="dot"></div>';
+            return `<div class="face-${val} w-full h-full">${dots}</div>`;
+        }
+
+        function setMessage(status, hand = null) {
+            let html = '';
+            if (status) {
+                html += `<span class="block text-slate-400 text-sm uppercase tracking-wide font-bold mb-1">${status}</span>`;
+            }
+            if (hand) {
+                html += `<span class="block text-3xl font-bold text-amber-400 drop-shadow-md animate-fade-in-up">${hand}</span>`;
+            }
+            // If neither (clearing), show default or nothing
+            if (!status && !hand) {
+                html = `<span class="text-slate-500 italic">...</span>`;
+            }
+            els.messageArea.innerHTML = html;
+        }
+
+        function updateScoreDisplay() {
+            if (state.mode === 'single') {
+                els.modeDisplay.innerText = "SINGLE PLAYER";
+                els.scoreDisplay.innerText = config.betsEnabled ? `CREDITS: ${state.credits[0]}` : `WINS: ${state.wins[0]}`;
+            } else {
+                els.modeDisplay.innerText = config.betsEnabled ? `CO-OP (${config.playerCount}P BETTING)` : `CO-OP (FIRST TO ${config.winTarget})`;
+                
+                // Unified clean design for all player counts
+                let parts = [];
+                for(let i=0; i<config.playerCount; i++) {
+                    const val = config.betsEnabled ? state.credits[i] : state.wins[i];
+                    parts.push(`P${i+1}: <span class="text-amber-400">${val}</span>`);
+                }
+                
+                els.scoreDisplay.innerHTML = `<div class="flex flex-wrap justify-center items-center text-sm text-slate-200 font-bold leading-relaxed">${parts.join('<span class="text-slate-600 mx-3">|</span>')}</div>`;
+            }
+        }
+
+        function updateTurnIndicator() {
+            // Deprecated for redundant UI, but function kept to prevent errors if called.
+            // Effectively does nothing as turnIndicator div is hidden.
+        }
+
+        // --- Confetti System (Canvas) ---
+        const canvas = els.confettiCanvas;
+        const ctx = canvas.getContext('2d');
+        let particles = [];
+        let animationId = null;
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+        class Particle {
+            constructor() {
+                this.x = Math.random() * canvas.width;
+                this.y = -10;
+                this.vx = (Math.random() - 0.5) * 4;
+                this.vy = Math.random() * 4 + 2;
+                this.color = `hsl(${Math.random() * 360}, 100%, 50%)`;
+                this.size = Math.random() * 8 + 4;
+                this.rotation = Math.random() * 360;
+                this.rotationSpeed = (Math.random() - 0.5) * 10;
+            }
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.rotation += this.rotationSpeed;
+                return this.y < canvas.height;
+            }
+            draw() {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.rotation * Math.PI / 180);
+                ctx.fillStyle = this.color;
+                ctx.fillRect(-this.size/2, -this.size/2, this.size, this.size);
+                ctx.restore();
+            }
+        }
+
+        function spawnConfetti() {
+            particles = [];
+            for (let i = 0; i < 150; i++) particles.push(new Particle());
+            if (!animationId) animateConfetti();
+        }
+
+        function animateConfetti() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            particles = particles.filter(p => p.update());
+            particles.forEach(p => p.draw());
+            
+            if (particles.length > 0) {
+                animationId = requestAnimationFrame(animateConfetti);
+            } else {
+                animationId = null;
+            }
+        }
+
+        // Initialize
+        init();
+
+    </script>
+</body>
+</html>

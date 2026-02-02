@@ -38,7 +38,9 @@ nav ul li a {
 }
 
 nav ul li a:hover {
-    background-color: #555;
+    box-shadow: 0 0 5px lime;
+    border-radius: 10px;
+    background-color: #444;
 }
 
 main {
@@ -51,7 +53,7 @@ footer {
     color: white;
     text-align: center;
     padding: 10px 0;
-    position: fixed;
+    position: relative;
     bottom: 0;
     width: 100%;
 }
@@ -69,10 +71,11 @@ nav ul li .dropdown-content {
     background-color: #222;
     min-width: 160px;
     box-shadow: 0 8px 16px rgba(0,0,0,0.2);
-    padding: 0;
+    padding: 10px;
     margin: 0;
     list-style: none;
     z-index: 1000;
+    border-radius: 10px;
 }
 
 nav ul li .dropdown-content li a {
@@ -94,6 +97,9 @@ nav ul li.dropdown:hover .dropdown-content {
     display: inline-block;
     text-align: center;
     margin: 10px;
+    border: 1px solid #555;
+    border-radius: 10px;
+    padding: 1%;
 }
 
 .game-image {
@@ -113,4 +119,26 @@ nav ul li.dropdown:hover .dropdown-content {
     margin: 8px 0 0 0;
     font-size: 14px;
     color: white;
+}
+
+.explore a {
+    color: lime;
+    text-decoration: none;
+}
+
+.explore a:hover {
+    text-decoration: underline;
+}
+
+.featured-games a {
+    color: lime;
+    text-decoration: none;
+}
+
+.featured-games a:hover {
+    text-decoration: underline;
+}
+
+.game-card:hover {
+    transform: scale(1.05);
 }

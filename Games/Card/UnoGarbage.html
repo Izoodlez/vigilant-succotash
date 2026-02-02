@@ -1,0 +1,1493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Suited Uno Garbage</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            height: 100%;
+            /* Default background, will be overridden by JS immediately */
+            background-color: #05141a; 
+            font-family: 'Inter', 'Arial', sans-serif;
+            color: white;
+            transition: background-color 0.5s ease; /* Smooth transition when changing colors */
+        }
+        canvas {
+            display: block;
+            /* background-color set by JS */
+            border-radius: 10px;
+            /* Prevent touch actions like scrolling/zooming on the canvas */
+            touch-action: none;
+            box-shadow: 0 0 50px rgba(0,0,0,0.5); /* Added shadow to make canvas pop from dark body */
+        }
+        #game-container {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+    </style>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <div id="game-container">
+        <canvas id="gameCanvas"></canvas>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // --- Game State ---
+        let gameState = 'MAINMENU'; 
+        let players = [];
+        let deck = [];
+        let discardPile = [];
+        let currentPlayerIndex = 0;
+        let drawnCard = null;
+        let drawSource = null;
+        let message = "Welcome to Suited Uno Garbage!";
+        let numPlayers = 4; // Default player count
+        let playDirection = 1;
+        let skipNextPlayer = false;
+        let cardsToDiscardForPlusFour = [];
+
+        // --- NEW: Fast Forward ---
+        let fastForwardEnabled = false;
+
+        // --- Trade State Variables ---
+        let preTradeGameState = null; 
+        let tradeTargetPlayerIndex = -1; 
+        let playerTradeCardIndex = -1; 
+        let cpuTradeCardIndex = -1; 
+        let tradeResultMessage = ""; 
+
+        // --- Settings ---
+        let tableColor = '#355e3b'; // Default Teal
+        let tableTexture = 'felt'; // solid, felt, wood
+        let showOpponentCardsFaceUp = true; 
+        const TABLE_COLOR_OPTIONS = [
+            { name: 'Green', color: '#355e3b' },
+            { name: 'Blue', color: '#000435' },
+            { name: 'Red', color: '#972A27' },
+            { name: 'Teal', color: '#004963' }
+        ];
+
+        // --- Animation State ---
+        let lastTime = 0;
+        let animations = [];
+
+        // --- UI Regions (for clicking) ---
+        let mainMenuButtons = { start: {}, settings: {} };
+        let settingsButtons = { back: {}, playerCounts: [], colorSwatches: [], opponentFaceUp: { on: {}, off: {} }, textures: { solid: {}, felt: {}, wood: {} } };
+        let deckRegion = {};
+        let discardRegion = {};
+        let drawnCardRegion = {};
+        let gridRegions = []; 
+        let cpuGridAreas = []; 
+        let restartButtonRegion = {};
+        let messageRegion = {};
+        let backToMenuButtonRegion = {};
+        let tradeButtonRegion = {}; 
+        let fastForwardButtonRegion = {}; 
+        let tradeModalRegions = { 
+            playerGrid: [],
+            cpuGrid: [],
+            confirmButton: {},
+            cancelButton: {}
+        };
+        let hoveredRegion = null; 
+
+        // --- Offscreen Canvases for Textures ---
+        let offscreenWoodCanvas = null;
+        let offscreenFeltCanvas = null;
+
+        // --- Seeded PRNG for consistent textures ---
+        let seed = 1;
+        function random() {
+            let x = Math.sin(seed++) * 10000;
+            return x - Math.floor(x);
+        }
+
+        // --- Card & Layout Constants ---
+        const CARD_ASPECT_RATIO = 1.4;
+        const CARD_COLORS = {
+            red: '#d9534f',
+            yellow: '#f0ad4e',
+            green: '#5cb85c',
+            blue: '#0275d8',
+            black: '#333333'
+        };
+        const COLORS_ONLY = ['red', 'yellow', 'green', 'blue'];
+
+        // --- Utility Functions ---
+
+        function drawRoundedRect(x, y, w, h, r) {
+            if (w < 2 * r) r = w / 2;
+            if (h < 2 * r) r = h / 2;
+            ctx.beginPath();
+            ctx.moveTo(x + r, y);
+            ctx.arcTo(x + w, y, x + w, y + h, r);
+            ctx.arcTo(x + w, y + h, x, y + h, r);
+            ctx.arcTo(x, y + h, x, y, r);
+            ctx.arcTo(x, y, x + w, y, r);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+        }
+
+        function isPointInRect(x, y, rect) {
+            return rect && rect.w && rect.h && x > rect.x && x < rect.x + rect.w && y > rect.y && y < rect.y + rect.h;
+        }
+
+        function wrapText(text, x, y, maxWidth, lineHeight) {
+            let words = text.split(' ');
+            let line = '';
+            let lineCount = 0;
+
+            for (let n = 0; n < words.length; n++) {
+                let testLine = line + words[n] + ' ';
+                let metrics = ctx.measureText(testLine);
+                let testWidth = metrics.width;
+                if (testWidth > maxWidth && n > 0) {
+                    ctx.fillText(line, x, y + lineCount * lineHeight);
+                    line = words[n] + ' ';
+                    lineCount++;
+                } else {
+                    line = testLine;
+                }
+            }
+            ctx.fillText(line, x, y + lineCount * lineHeight);
+        }
+
+        // --- NEW FUNCTION: Update Body Background ---
+        function updateBodyBackgroundColor() {
+            // Remove the hash if present
+            const hex = tableColor.replace('#', '');
+            
+            // Parse RGB components
+            const r = parseInt(hex.substring(0, 2), 16);
+            const g = parseInt(hex.substring(2, 4), 16);
+            const b = parseInt(hex.substring(4, 6), 16);
+
+            // Darken factor (0.3 means keep 30% brightness, discard 70%)
+            const factor = 0.3;
+
+            const newR = Math.floor(r * factor);
+            const newG = Math.floor(g * factor);
+            const newB = Math.floor(b * factor);
+
+            document.body.style.backgroundColor = `rgb(${newR}, ${newG}, ${newB})`;
+        }
+
+        function resizeCanvas() {
+            const container = document.getElementById('game-container');
+            const { width, height } = container.getBoundingClientRect();
+
+            // Match the styles applied to the canvas/container
+            const aspect = 16 / 9;
+            let newWidth, newHeight;
+
+            if (width / height > aspect) {
+                newHeight = height * 0.95; 
+                newWidth = newHeight * aspect;
+            } else {
+                newWidth = width * 0.95; 
+                newHeight = newWidth / aspect;
+            }
+
+            canvas.width = newWidth;
+            canvas.height = newHeight;
+
+            canvas.style.width = `${newWidth}px`;
+            canvas.style.height = `${newHeight}px`;
+
+            container.style.display = 'flex';
+            container.style.alignItems = 'center';
+            container.style.justifyContent = 'center';
+            container.style.width = '100vw';
+            container.style.height = '100vh';
+
+            calculateLayout();
+            regenerateTextures();
+
+            if (typeof draw === 'function') {
+                draw();
+            }
+        }
+
+
+        function calculateLayout() {
+            const w = canvas.width;
+            const h = canvas.height;
+            const padding = w * 0.01;
+
+            // --- Main Menu ---
+            const btnW = w * 0.25;
+            const btnH = h * 0.1;
+            const btnY = h * 0.5;
+            const btnPadding = w * 0.05;
+            mainMenuButtons.start = { x: w / 2 - btnW - btnPadding / 2, y: btnY, w: btnW, h: btnH };
+            mainMenuButtons.settings = { x: w / 2 + btnPadding / 2, y: btnY, w: btnW, h: btnH };
+
+            // --- Settings ---
+            const settingsBtnW = w * 0.25;
+            const settingsBtnH = h * 0.1;
+            settingsButtons.back = { x: w / 2 - settingsBtnW / 2, y: h * 0.85, w: settingsBtnW, h: settingsBtnH };
+            settingsButtons.playerCounts = [];
+            const pcButtonW = w * 0.1;
+            const pcButtonH = h * 0.1;
+            const pcTotalWidth = 5 * pcButtonW + 4 * (w * 0.02);
+            let pcStartX = w - pcTotalWidth - w * 0.1;
+            for (let i = 2; i <= 6; i++) {
+                const x = pcStartX + (i - 2) * (pcButtonW + w * 0.02);
+                const y = h * 0.25 - pcButtonH / 2;
+                settingsButtons.playerCounts.push({ x, y, w: pcButtonW, h: pcButtonH, num: i });
+            }
+            settingsButtons.colorSwatches = [];
+            const swatchSize = w * 0.1;
+            const totalSwatchWidth = TABLE_COLOR_OPTIONS.length * swatchSize + (TABLE_COLOR_OPTIONS.length - 1) * (w * 0.02);
+            let swatchStartX = w - totalSwatchWidth - w * 0.1;
+            for (let i = 0; i < TABLE_COLOR_OPTIONS.length; i++) {
+                const option = TABLE_COLOR_OPTIONS[i];
+                const x = swatchStartX + i * (swatchSize + w * 0.02);
+                const y = h * 0.40 - swatchSize / 2;
+                settingsButtons.colorSwatches.push({ x, y, w: swatchSize, h: swatchSize, color: option.color });
+            }
+            const texBtnW = w * 0.15;
+            const texBtnH = h * 0.1;
+            const texBtnY = h * 0.55 - texBtnH / 2;
+            const texBtnPadding = w * 0.02;
+            let texStartX = w - (texBtnW * 3 + texBtnPadding * 2) - w * 0.1;
+            settingsButtons.textures.solid = { x: texStartX, y: texBtnY, w: texBtnW, h: texBtnH, value: 'solid' };
+            texStartX += texBtnW + texBtnPadding;
+            settingsButtons.textures.felt = { x: texStartX, y: texBtnY, w: texBtnW, h: texBtnH, value: 'felt' };
+            texStartX += texBtnW + texBtnPadding;
+            settingsButtons.textures.wood = { x: texStartX, y: texBtnY, w: texBtnW, h: texBtnH, value: 'wood' };
+            const btnW_toggle = w * 0.15;
+            const btnH_toggle = h * 0.1;
+            const btnY_toggle = h * 0.70 - btnH_toggle / 2;
+            const btnPadding_toggle = w * 0.02;
+            let startX_toggle = w - (btnW_toggle * 2 + btnPadding_toggle) - w * 0.1;
+            settingsButtons.opponentFaceUp.off = { x: startX_toggle, y: btnY_toggle, w: btnW_toggle, h: btnH_toggle, value: false };
+            let x_toggle = startX_toggle + btnW_toggle + btnPadding_toggle;
+            settingsButtons.opponentFaceUp.on = { x: x_toggle, y: btnY_toggle, w: btnW_toggle, h: btnH_toggle, value: true };
+
+
+            // --- Game ---
+            const humanCardW = w * 0.07;
+            const humanCardH = humanCardW * CARD_ASPECT_RATIO;
+            const gameTopAreaY = h * 0.45;
+
+            deckRegion = { x: w * 0.05, y: gameTopAreaY, w: humanCardW, h: humanCardH };
+            discardRegion = { x: w * 0.05 + humanCardW + padding, y: gameTopAreaY, w: humanCardW, h: humanCardH };
+
+            const gridWidth = 5 * humanCardW + 4 * padding;
+            const gridHeight = 2 * humanCardH + 1 * padding;
+            const gridStartX = (w - gridWidth) / 2;
+            const gridStartY = h * 0.95 - gridHeight;
+
+            gridRegions = [];
+            for (let i = 0; i < 10; i++) {
+                const row = Math.floor(i / 5);
+                const col = i % 5;
+                gridRegions.push({ x: gridStartX + col * (humanCardW + padding), y: gridStartY + row * (humanCardH + padding), w: humanCardW, h: humanCardH, index: i });
+            }
+
+            const drawnW = humanCardW * 1.25;
+            const drawnH = humanCardH * 1.25;
+            drawnCardRegion = { x: gridStartX - drawnW - padding * 2, y: gridStartY + (gridHeight - drawnH) / 2, w: drawnW, h: drawnH };
+
+            // --- NEW: Fast Forward Button Layout ---
+            const ffBtnW = drawnW * 0.4; // Small button
+            const ffBtnH = ffBtnW;
+            const ffBtnX = drawnCardRegion.x - ffBtnW - padding;
+            const ffBtnY = drawnCardRegion.y + (drawnH - ffBtnH) / 2; // Vertically center with drawn card
+            fastForwardButtonRegion = { x: ffBtnX, y: ffBtnY, w: ffBtnW, h: ffBtnH };
+
+            // --- Message Box & Game Buttons ---
+            const boxW = w * 0.25;
+            const boxH = h * 0.15;
+            messageRegion = { x: w * 0.98 - boxW, y: h * 0.98 - boxH, w: boxW, h: boxH };
+
+            const backBtnW = w * 0.15;
+            const backBtnH = h * 0.08;
+            backToMenuButtonRegion = { x: w * 0.98 - backBtnW, y: messageRegion.y - backBtnH - padding, w: backBtnW, h: backBtnH };
+
+            const tradeBtnW = backBtnW;
+            const tradeBtnH = backBtnH;
+            tradeButtonRegion = { x: backToMenuButtonRegion.x, y: backToMenuButtonRegion.y - tradeBtnH - padding, w: tradeBtnW, h: tradeBtnH };
+
+
+            // --- Game Over ---
+            const goBtnW = w * 0.2;
+            const goBtnH = h * 0.1;
+            restartButtonRegion = { x: w / 2 - goBtnW / 2, y: h * 0.6, w: goBtnW, h: goBtnH };
+
+            // --- Trade Modal Layout ---
+            const modalPadding = w * 0.02;
+            const modalWidth = w * 0.85;
+            const modalHeight = h * 0.85;
+            const modalX = (w - modalWidth) / 2;
+            const modalY = (h - modalHeight) / 2;
+            
+            // FIX 1: Shrink card size slightly (0.08 -> 0.072) to allow better vertical fit
+            const modalGridCardW = modalWidth * 0.072;
+            const modalGridCardH = modalGridCardW * CARD_ASPECT_RATIO;
+            const modalGridGap = modalPadding * 0.35;
+            const modalCpuGridW = 5 * modalGridCardW + 4 * modalGridGap;
+            const modalCpuGridH = 2 * modalGridCardH + 1 * modalGridGap;
+            
+            const modalCpuGridX = modalX + modalPadding * 1.5;
+            
+            // FIX 2: Move the top grid down to 16% height (was 8%) to clear the Title text
+            const modalCpuGridY = modalY + modalHeight * 0.16; 
+            tradeModalRegions.cpuGrid = [];
+            for (let i = 0; i < 10; i++) {
+                const row = Math.floor(i / 5);
+                const col = i % 5;
+                tradeModalRegions.cpuGrid.push({ x: modalCpuGridX + col * (modalGridCardW + modalGridGap), y: modalCpuGridY + row * (modalGridCardH + modalGridGap), w: modalGridCardW, h: modalGridCardH, index: i });
+            }
+            
+            const modalPlayerGridW = modalCpuGridW;
+            const modalPlayerGridH = modalCpuGridH;
+            const modalPlayerGridX = modalCpuGridX;
+            
+            // FIX 3: Tighten the gap between grids (h*0.05 -> h*0.025) so bottom grid doesn't hit buttons
+            const modalPlayerGridY = modalCpuGridY + modalCpuGridH + h * 0.025; 
+            tradeModalRegions.playerGrid = [];
+            for (let i = 0; i < 10; i++) {
+                const row = Math.floor(i / 5);
+                const col = i % 5;
+                tradeModalRegions.playerGrid.push({ x: modalPlayerGridX + col * (modalGridCardW + modalGridGap), y: modalPlayerGridY + row * (modalGridCardH + modalGridGap), w: modalGridCardW, h: modalGridCardH, index: i });
+            }
+            
+            const modalButtonW = modalWidth * 0.2;
+            const modalButtonH = modalHeight * 0.1;
+            const modalButtonGap = modalPadding * 1.5;
+            const modalButtonX = modalX + modalWidth - modalButtonW - modalPadding * 1.5;
+            
+            const confirmButtonY = modalY + modalHeight - modalPadding * 1.5 - modalButtonH;
+            const cancelButtonY = confirmButtonY - modalButtonGap - modalButtonH;
+            
+            tradeModalRegions.cancelButton = { x: modalButtonX, y: cancelButtonY, w: modalButtonW, h: modalButtonH };
+            tradeModalRegions.confirmButton = { x: modalButtonX, y: confirmButtonY, w: modalButtonW, h: modalButtonH };
+        }
+
+
+        function regenerateTextures() {
+            offscreenWoodCanvas = null;
+            offscreenFeltCanvas = null;
+        }
+
+        // --- Deck & Card Logic ---
+         function createDeck() {
+             const colors = ['red', 'yellow', 'green', 'blue'];
+             const values = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'skip', 'reverse', '+2'];
+             let newDeck = [];
+             for (const color of colors) {
+                 newDeck.push({ color, value: '0' });
+                 for (let i = 1; i <= 9; i++) { newDeck.push({ color, value: i.toString() }); newDeck.push({ color, value: i.toString() }); }
+                 for (const value of ['skip', 'reverse', '+2']) { newDeck.push({ color, value }); newDeck.push({ color, value }); }
+             }
+             for (let i = 0; i < 8; i++) { newDeck.push({ color: 'black', value: 'wild' }); }
+             for (let i = 0; i < 4; i++) { newDeck.push({ color: 'black', value: '+4' }); }
+             return newDeck;
+         }
+         function shuffleDeck(deck) { for (let i = deck.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1));[deck[i], deck[j]] = [deck[j], deck[i]]; } }
+         function reshuffleDiscard() {
+             console.log("Reshuffling discard pile..."); // Debug log
+             const topCard = discardPile.pop();
+             deck = discardPile.filter(c => c); // Ensure no nulls in new deck
+             shuffleDeck(deck);
+             discardPile = topCard ? [topCard] : [];
+             console.log(`Deck size after reshuffle: ${deck.length}, Discard size: ${discardPile.length}`); // Debug log
+         }
+         function getCardSortValue(card) { if (!card) return 99; const value = card.value; if (!isNaN(parseInt(value))) { return parseInt(value); } if (value === 'wild') return 10; if (value === '+4') return 11; if (value === '+2') return 12; if (value === 'reverse') return 13; if (value === 'skip') return 14; return 15; }
+         function sortGrid(grid) { grid.sort((a, b) => { const valA = getCardSortValue(a); const valB = getCardSortValue(b); if (valA !== valB) { return valA - valB; } if (!a) return 1; if (!b) return -1; const colors = ['red', 'yellow', 'green', 'blue', 'black']; return colors.indexOf(a.color) - colors.indexOf(b.color); }); }
+
+
+        // --- Game Flow Logic ---
+        function initGame() {
+            deck = createDeck(); shuffleDeck(deck); discardPile = []; players = []; drawnCard = null; currentPlayerIndex = 0; playDirection = 1; skipNextPlayer = false; cardsToDiscardForPlusFour = []; animations = []; preTradeGameState = null; tradeTargetPlayerIndex = -1; playerTradeCardIndex = -1; cpuTradeCardIndex = -1;
+            fastForwardEnabled = false; // Reset fast forward
+
+            for (let i = 0; i < numPlayers; i++) {
+                const grid = [];
+                 for (let j = 0; j < 10; j++) {
+                     if (deck.length === 0 && discardPile.length > 1) reshuffleDiscard();
+                     if (deck.length === 0) {
+                         console.error("Ran out of cards during initial deal!");
+                         break;
+                     }
+                     grid.push(deck.pop());
+                 }
+                 sortGrid(grid);
+                const isCPU = i !== 0; const player = { id: i + 1, grid, isCPU, targetColor: null }; if (isCPU) { player.targetColor = determineCPUTargetColor(player); } players.push(player);
+            }
+
+             do {
+                 if (deck.length === 0 && discardPile.length > 1) reshuffleDiscard();
+                 if (deck.length === 0) {
+                      console.error("Ran out of cards dealing first discard!");
+                      discardPile.push({color: 'red', value: '1'});
+                      break;
+                 }
+                discardPile.push(deck.pop());
+             } while (discardPile.length > 0 && discardPile[discardPile.length - 1].color === 'black');
+
+            gameState = 'PLAYERTURN'; message = `Player 1: Your turn. Click deck or discard to draw.`;
+        }
+
+
+        function handlePlayerDrawCard() {
+             if (deck.length === 0 && discardPile.length <= 1) {
+                  message = "No cards left to draw!";
+                  draw();
+                  return;
+             }
+            if (deck.length === 0) { reshuffleDiscard(); }
+             if (deck.length === 0) {
+                  message = "No cards left to draw!";
+                  draw();
+                  return;
+             }
+
+            const cardToAnimate = deck.pop();
+            if (!cardToAnimate) {
+                console.error("Popped null card from deck");
+                 message = "Error drawing card. Try again.";
+                 draw();
+                 return;
+             }
+            gameState = 'TRANSITION'; message = `Drawing...`; if (!deckRegion.w) resizeCanvas(); animations.push({ card: cardToAnimate, startX: deckRegion.x, startY: deckRegion.y, startW: deckRegion.w, startH: deckRegion.h, endX: drawnCardRegion.x, endY: drawnCardRegion.y, endW: drawnCardRegion.w, endH: drawnCardRegion.h, x: deckRegion.x, y: deckRegion.y, w: deckRegion.w, h: deckRegion.h, progress: 0, duration: 300, onEnd: () => { drawnCard = cardToAnimate; drawSource = 'deck'; gameState = 'DRAWN'; message = `Player 1: Click a grid card to replace, or click the discard pile.`; } });
+       }
+
+        function handlePlayerSwapCard(gridIndex) { const player = players[currentPlayerIndex]; const cardToDiscard = player.grid[gridIndex]; if (!cardToDiscard) { message = "That slot is empty. Click a card to replace."; draw(); return; } const cardToGrid = drawnCard; drawnCard = null; drawSource = null; player.grid[gridIndex] = null; gameState = 'TRANSITION'; message = "Swapping..."; const gridTargetRegion = gridRegions[gridIndex]; animations.push({ card: cardToGrid, startX: drawnCardRegion.x, startY: drawnCardRegion.y, startW: drawnCardRegion.w, startH: drawnCardRegion.h, endX: gridTargetRegion.x, endY: gridTargetRegion.y, endW: gridTargetRegion.w, endH: gridTargetRegion.h, x: drawnCardRegion.x, y: drawnCardRegion.y, w: drawnCardRegion.w, h: drawnCardRegion.h, progress: 0, duration: 300, onEnd: () => { player.grid[gridIndex] = cardToGrid; animateDiscard(cardToDiscard, gridTargetRegion); } }); }
+        
+        function handlePlayerDrawFromDiscard() { 
+            if (discardPile.length === 0) { message = "Discard pile is empty!"; return; } 
+            const cardToAnimate = discardPile[discardPile.length - 1]; 
+            if (!cardToAnimate) return; 
+
+            // NEW: Explicitly prevent picking up a +4 card.
+            if (cardToAnimate.value === '+4') {
+                message = "You cannot pick up a +4 from the discard pile!";
+                draw();
+                return;
+            }
+
+            gameState = 'TRANSITION'; 
+            message = "Drawing from discard..."; 
+            animations.push({ card: cardToAnimate, startX: discardRegion.x, startY: discardRegion.y, startW: discardRegion.w, startH: discardRegion.h, endX: drawnCardRegion.x, endY: drawnCardRegion.y, endW: drawnCardRegion.w, endH: drawnCardRegion.h, x: discardRegion.x, y: discardRegion.y, w: discardRegion.w, h: discardRegion.h, progress: 0, duration: 300, onEnd: () => { discardPile.pop(); drawnCard = cardToAnimate; drawSource = 'discard'; gameState = 'DRAWN'; message = `Player 1: Click a grid card to replace. (Cannot discard)`; } }); 
+        }
+
+        // --- NEW: +4 Helper Function ---
+        function initiatePlusFour(targetPlayer, targetIndex) {
+            message = `Player ${targetPlayer.id} is hit with a +4!`;
+            gameState = 'TRANSITION';
+            draw();
+            
+            const delay = fastForwardEnabled ? 100 : 1500;
+            
+            setTimeout(() => {
+                if (targetPlayer.isCPU) {
+                    // CPU will now choose 4 cards to discard
+                    handleCPUPlusFourDiscard(targetPlayer, targetIndex);
+                } else {
+                    // Human player's turn to discard
+                    gameState = 'PLUSFOUR';
+                    currentPlayerIndex = targetIndex; // It is now this player's turn
+                    message = `You were hit by a +4! Click 4 cards to discard, then click the discard pile.`;
+                    cardsToDiscardForPlusFour = []; // This will store indexes
+                    draw();
+                }
+            }, delay);
+        }
+
+        function animateDiscard(card, startRegion) { 
+            if (!card) { console.error("animateDiscard called with null card."); message = "An error occurred. Skipping turn."; gameState = 'INTERMISSION'; setTimeout(nextTurn, 100); return; } 
+            gameState = 'TRANSITION'; 
+            const player = players[currentPlayerIndex]; 
+            const name = player.isCPU ? `Player ${player.id} (CPU)` : `Player ${player.id}`; 
+            message = `${name} is discarding...`; 
+            
+            animations.push({ 
+                card: card, 
+                startX: startRegion.x, startY: startRegion.y, startW: startRegion.w, startH: startRegion.h, 
+                endX: discardRegion.x, endY: discardRegion.y, endW: discardRegion.w, endH: discardRegion.h, 
+                x: startRegion.x, y: startRegion.y, w: startRegion.w, h: startRegion.h, 
+                progress: 0, 
+                duration: 300, 
+                onEnd: () => { 
+                    discardPile.push(card); 
+                    sortGrid(player.grid); 
+                    if (checkWin()) { return; } 
+                    
+                    message = `${name} discarded ${card.color !== 'black' ? card.color : ''} ${card.value}. End of turn.`;
+                    let nextPlayerIndex = (currentPlayerIndex + playDirection + numPlayers) % numPlayers;
+                    let effectMessage = "";
+
+                    if (card.value === 'skip') {
+                        skipNextPlayer = true;
+                        effectMessage = ` Player ${players[nextPlayerIndex].id}'s turn is skipped!`;
+                    } else if (card.value === 'reverse') {
+                        playDirection *= -1;
+                        nextPlayerIndex = (currentPlayerIndex + playDirection + numPlayers) % numPlayers;
+                        effectMessage = ` Play direction reversed!`;
+                    
+                    // --- NEW +4 LOGIC ---
+                    } else if (card.value === '+4') {
+                        const targetPlayer = players[nextPlayerIndex];
+                        // Start the +4 sequence (discard 4, then draw 4)
+                        initiatePlusFour(targetPlayer, nextPlayerIndex);
+                        return; // Return from onEnd, initiatePlusFour will handle the next state
+                    }
+                    
+                    message += effectMessage;
+                    gameState = 'INTERMISSION';
+                    const delay = fastForwardEnabled ? 100 : (effectMessage ? 2500 : 1500);
+                    setTimeout(nextTurn, delay);
+                } 
+            }); 
+        }
+
+        function nextTurn() { 
+            if (gameState !== 'INTERMISSION') return; 
+            let nextPlayerIndex = (currentPlayerIndex + playDirection + numPlayers) % numPlayers; 
+            if (skipNextPlayer) { 
+                skipNextPlayer = false; 
+                message = `Player ${players[nextPlayerIndex].id}'s turn was skipped.`; 
+                nextPlayerIndex = (nextPlayerIndex + playDirection + numPlayers) % numPlayers; 
+            } 
+            currentPlayerIndex = nextPlayerIndex; 
+            const player = players[currentPlayerIndex]; 
+            
+            if (player.isCPU) { 
+                gameState = 'CPUTURN'; 
+                message = `Player ${player.id} (CPU) is thinking...`;
+                const delay = fastForwardEnabled ? 100 : (1000 + Math.random() * 1000);
+                setTimeout(runCPUTurn, delay);
+            } else { 
+                gameState = 'PLAYERTURN'; 
+                message = `Player ${player.id}: Your turn. Click deck or discard to draw.`; 
+            } 
+            draw();
+        }
+
+        // --- NEW: Renamed and modified from handlePlusFourAction ---
+        function handleHumanPlusFourDiscard() {
+            if (cardsToDiscardForPlusFour.length !== 4) return;
+            
+            gameState = 'TRANSITION';
+            const player = players[currentPlayerIndex];
+            
+            // Sort indexes descending to splice safely from the grid
+            cardsToDiscardForPlusFour.sort((a, b) => b - a);
+            
+            for (const index of cardsToDiscardForPlusFour) {
+                const discardedCard = player.grid.splice(index, 1)[0]; // Remove card
+                if (discardedCard) {
+                    discardPile.push(discardedCard);
+                } else {
+                    console.error(`Human +4 Discard: Splice failed for index ${index}`);
+                }
+            }
+            
+            // NOW draw 4 new cards
+            message = `Player ${player.id} discarded 4, now drawing 4...`;
+            for (let i = 0; i < 4; i++) {
+                if (deck.length === 0 && discardPile.length > 1) reshuffleDiscard();
+                if (deck.length === 0) { 
+                    console.error("Ran out of cards drawing for +4!"); 
+                    break; 
+                }
+                player.grid.push(deck.pop()); // Add new card
+            }
+
+            sortGrid(player.grid); // Re-sort the grid, now back to 10 cards
+            cardsToDiscardForPlusFour = [];
+            message = `Player ${player.id} finished their +4 turn.`;
+            gameState = 'INTERMISSION';
+            
+            const delay = fastForwardEnabled ? 100 : 1500;
+            setTimeout(nextTurn, delay); // Move to the next player
+        }
+
+        // --- NEW: Renamed and modified from handleCPUPlusFour ---
+        function handleCPUPlusFourDiscard(player, playerIndexForTurn) {
+            gameState = 'TRANSITION';
+            message = `Player ${player.id} (CPU) is selecting 4 cards to discard...`;
+            draw();
+
+            const delay = fastForwardEnabled ? 100 : 2000;
+            setTimeout(() => {
+                // Score all cards in the grid (original 10)
+                const scoredGrid = player.grid.map((card, index) => ({ card, index, score: getCPUCardScore(player, card) })).filter(item => item.card);
+                scoredGrid.sort((a, b) => b.score - a.score); // Highest score (worst) first
+                
+                // Get indexes of 4 worst cards
+                const indexesToDiscard = scoredGrid.slice(0, 4).map(item => item.index);
+                indexesToDiscard.sort((a, b) => b - a); // Sort descending to splice safely
+
+                for (const index of indexesToDiscard) {
+                    const cardToDiscard = player.grid.splice(index, 1)[0]; // Remove card
+                    if (cardToDiscard) {
+                        discardPile.push(cardToDiscard);
+                    } else {
+                        console.error(`CPU +4 Discard: Splice failed for index ${index}`);
+                    }
+                }
+
+                // NOW draw 4 new cards
+                for (let i = 0; i < 4; i++) {
+                    if (deck.length === 0 && discardPile.length > 1) reshuffleDiscard();
+                    if (deck.length === 0) { 
+                        console.error("CPU ran out of cards drawing for +4!"); 
+                        break; 
+                    }
+                    player.grid.push(deck.pop());
+                }
+
+                sortGrid(player.grid); // Re-sort the grid, now back to 10 cards
+
+                message = `Player ${player.id} (CPU) finished their +4 action.`;
+                currentPlayerIndex = playerIndexForTurn; // Set current player to the CPU who just went
+                gameState = 'INTERMISSION';
+                
+                const nextTurnDelay = fastForwardEnabled ? 100 : 1500;
+                setTimeout(nextTurn, nextTurnDelay); // Move to the next player
+
+            }, delay);
+        }
+
+        function checkWin() { 
+            const grid = players[currentPlayerIndex].grid; 
+            // Win check only runs *after* grid is back to 10 cards
+            if (grid.length !== 10) return false;
+
+            const targetColorCard = grid.find(c => c && c.color !== 'black'); 
+            let targetColor; 
+            if (!targetColorCard) { 
+                targetColor = players[currentPlayerIndex].targetColor || 'red'; 
+            } else { 
+                targetColor = targetColorCard.color; 
+            } 
+            const hasColorMismatch = grid.some(c => c && c.color !== 'black' && c.color !== targetColor); 
+            if (hasColorMismatch) { return false; } 
+            
+            const numbersFound = new Set(); 
+            let wildCount = 0; 
+            for (const card of grid) { 
+                if (!card) continue; 
+                if (card.color === 'black') { 
+                    wildCount++; 
+                } else if (card.color === targetColor && !isNaN(parseInt(card.value))) { 
+                    numbersFound.add(card.value); 
+                } 
+            } 
+            
+            if (grid.filter(c => c).length < 10) return false; 
+            
+            let needed = 0; 
+            for (let i = 0; i <= 9; i++) { 
+                if (!numbersFound.has(i.toString())) { 
+                    needed++; 
+                } 
+            } 
+            
+            if (needed <= wildCount) { 
+                gameState = 'GAMEOVER'; 
+                const name = players[currentPlayerIndex].isCPU ? `Player ${players[currentPlayerIndex].id} (CPU)` : `Player ${players[currentPlayerIndex].id}`; 
+                message = `${name} wins with ${targetColor}!`; 
+                return true; 
+            } 
+            return false; 
+        }
+
+
+        // --- CPU LOGIC ---
+        function determineCPUTargetColor(player) { const counts = { red: 0, yellow: 0, green: 0, blue: 0 }; for (const card of player.grid) { if (card && COLORS_ONLY.includes(card.color)) { counts[card.color]++; } } let maxCount = 0; let bestColor = 'red'; for (const color of COLORS_ONLY) { if (counts[color] > maxCount) { maxCount = counts[color]; bestColor = color; } } return bestColor; }
+        function getNeededNumbersAndWilds(grid, targetColor) { const numbersFound = new Set(); let wildCount = 0; for (const card of grid) { if (!card) continue; if (card.color === targetColor && !isNaN(parseInt(card.value))) { numbersFound.add(card.value); } else if (card.color === 'black') { wildCount++; } } const neededNumbers = []; for (let i = 0; i <= 9; i++) { if (!numbersFound.has(i.toString())) { neededNumbers.push(i.toString()); } } return { neededNumbers, wildCount }; }
+        function getCPUCardScore(player, card) { if (!card) return 100; let score = 0; const isDuplicate = player.grid.filter(c => c && c.value === card.value && c.color === card.color).length > 1; if (card.color !== player.targetColor && card.color !== 'black') { score = 10; } else if (['skip', 'reverse', '+2'].includes(card.value)) { score = 5; } else if (card.color === player.targetColor && !isNaN(parseInt(card.value)) && isDuplicate) { score = 2; } else if (card.color === 'black') { const { neededNumbers, wildCount } = getNeededNumbersAndWilds(player.grid, player.targetColor); if (wildCount > neededNumbers.length) { score = 1; } else { score = -1; } } else { score = -1; } return score; }
+        function runCPUTurn() { if (gameState !== 'CPUTURN') return; const player = players[currentPlayerIndex]; const { neededNumbers, wildCount } = getNeededNumbersAndWilds(player.grid, player.targetColor); const topDiscardCard = discardPile[discardPile.length - 1]; let isDiscardUseful = false; if (topDiscardCard) { if (topDiscardCard.color === player.targetColor && neededNumbers.includes(topDiscardCard.value)) { isDiscardUseful = true; } else if ((topDiscardCard.value === 'wild' || topDiscardCard.value === '+4') && neededNumbers.length > wildCount) { isDiscardUseful = true; } } if (isDiscardUseful) { const cardToAnimate = discardPile.pop(); message = `Player ${player.id} (CPU) is drawing from discard...`; gameState = 'TRANSITION'; animations.push({ card: cardToAnimate, startX: discardRegion.x, startY: discardRegion.y, startW: discardRegion.w, startH: discardRegion.h, endX: drawnCardRegion.x, endY: drawnCardRegion.y, endW: drawnCardRegion.w, endH: drawnCardRegion.h, x: discardRegion.x, y: discardRegion.y, w: discardRegion.w, h: discardRegion.h, progress: 0, duration: 300, onEnd: () => { drawnCard = cardToAnimate; gameState = 'CPUTURN'; message = `Player ${player.id} (CPU) is thinking...`;
+            // NEW: Check fast forward
+            const delay = fastForwardEnabled ? 100 : 1500;
+            setTimeout(() => { if (gameState !== 'CPUTURN' && gameState !== 'TRANSITION') return; let worstScore = -Infinity;
+                 let replacementIndex = -1; for (let i = 0; i < player.grid.length; i++) { const card = player.grid[i]; const score = getCPUCardScore(player, card); if (score > worstScore) { worstScore = score; replacementIndex = i; } } if (replacementIndex === -1) { replacementIndex = player.grid.findIndex(c => !c); if (replacementIndex === -1) replacementIndex = 0; } const cardToDiscard = player.grid[replacementIndex]; const cardToGrid = drawnCard; drawnCard = null; player.grid[replacementIndex] = null; gameState = 'TRANSITION'; player.grid[replacementIndex] = cardToGrid; if (cardToDiscard) { const cpuGridProxyRegion = { x: drawnCardRegion.x, y: drawnCardRegion.y, w: drawnCardRegion.w, h: drawnCardRegion.h }; animateDiscard(cardToDiscard, cpuGridProxyRegion); } else { sortGrid(player.grid); if (checkWin()) return; message = `Player ${player.id} (CPU) filled an empty slot.`; gameState = 'INTERMISSION'; 
+                 // NEW: Check fast forward
+                 const nextTurnDelay = fastForwardEnabled ? 100 : 1500;
+                 setTimeout(nextTurn, nextTurnDelay);
+                 } }, delay); } }); } else { 
+                 if (deck.length === 0 && discardPile.length <= 1) {
+                      message = `Player ${player.id} (CPU): No cards left! Skipping turn.`;
+                      gameState = 'INTERMISSION';
+                      // NEW: Check fast forward
+                      const delay = fastForwardEnabled ? 100 : 1500;
+                      setTimeout(nextTurn, delay);
+                      return;
+                  }
+                if (deck.length === 0) reshuffleDiscard();
+                if (deck.length === 0) {
+                      message = `Player ${player.id} (CPU): No cards left! Skipping turn.`;
+                      gameState = 'INTERMISSION';
+                      const delay = fastForwardEnabled ? 100 : 1500;
+                      setTimeout(nextTurn, delay);
+                      return;
+                }
+                 const cardToAnimate = deck.pop();
+                 if(!cardToAnimate){
+                      console.error("CPU popped null card from deck");
+                      message = `Player ${player.id} (CPU): Error drawing! Skipping turn.`;
+                      gameState = 'INTERMISSION';
+                      const delay = fastForwardEnabled ? 100 : 1500;
+                      setTimeout(nextTurn, delay);
+                      return;
+                 }
+                 message = `Player ${player.id} (CPU) is drawing from deck...`; gameState = 'TRANSITION'; animations.push({ card: cardToAnimate, startX: deckRegion.x, startY: deckRegion.y, startW: deckRegion.w, startH: deckRegion.h, endX: drawnCardRegion.x, endY: drawnCardRegion.y, endW: drawnCardRegion.w, endH: drawnCardRegion.h, x: deckRegion.x, y: deckRegion.y, w: deckRegion.w, h: deckRegion.h, progress: 0, duration: 300, onEnd: () => { drawnCard = cardToAnimate; gameState = 'CPUTURN'; message = `Player ${player.id} (CPU) is thinking...`;
+                 // NEW: Check fast forward
+                 const delay = fastForwardEnabled ? 100 : 1500;
+                 setTimeout(() => { if (gameState !== 'CPUTURN' && gameState !== 'TRANSITION') return; const { neededNumbers: currentNeeded, wildCount: currentWilds } = getNeededNumbersAndWilds(player.grid, player.targetColor); let cardToDiscard = drawnCard; let replacementIndex = -1; let isDrawnUseful = false; if (drawnCard.color === player.targetColor && currentNeeded.includes(drawnCard.value)) { isDrawnUseful = true; } else if ((drawnCard.value === 'wild' || drawnCard.value === '+4') && currentNeeded.length > currentWilds) { isDrawnUseful = true; } if (isDrawnUseful) { let worstScore = -Infinity; for (let i = 0; i < player.grid.length; i++) { const card = player.grid[i]; const score = getCPUCardScore(player, card); if (score > worstScore) { worstScore = score; replacementIndex = i; } } if (replacementIndex !== -1 && worstScore < 1 && (drawnCard.color === player.targetColor) && (currentWilds > currentNeeded.length)) { const wildIndex = player.grid.findIndex(c => c && c.color === 'black'); if (wildIndex !== -1) { replacementIndex = wildIndex; } } } if (replacementIndex !== -1) { cardToDiscard = player.grid[replacementIndex]; const cardToGrid = drawnCard; drawnCard = null; player.grid[replacementIndex] = null; gameState = 'TRANSITION'; player.grid[replacementIndex] = cardToGrid; if (cardToDiscard) { const cpuGridProxyRegion = { x: drawnCardRegion.x, y: drawnCardRegion.y, w: drawnCardRegion.w, h: drawnCardRegion.h }; animateDiscard(cardToDiscard, cpuGridProxyRegion); } else { sortGrid(player.grid); if (checkWin()) return; message = `Player ${player.id} (CPU) filled an empty slot.`; gameState = 'INTERMISSION'; 
+                 const nextTurnDelay = fastForwardEnabled ? 100 : 1500;
+                 setTimeout(nextTurn, nextTurnDelay);
+                 } } else { cardToDiscard = drawnCard; drawnCard = null; animateDiscard(cardToDiscard, drawnCardRegion); } }, delay); } }); }
+       }
+
+
+        // --- Drawing Functions ---
+        function drawCard(card, x, y, w, h, faceUp = true) {
+            const r = w * 0.1; ctx.strokeStyle = '#eee'; ctx.lineWidth = 2;
+            if (!faceUp) { ctx.fillStyle = '#222'; drawRoundedRect(x, y, w, h, r); ctx.fillStyle = CARD_COLORS.red; ctx.font = `bold ${w * 0.3}px Inter`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.save(); ctx.translate(x + w / 2, y + h / 2); ctx.rotate(-Math.PI / 4); ctx.fillText("UNO", 0, 0); ctx.restore(); return; }
+            if (!card) {
+                ctx.fillStyle = 'rgba(0,0,0,0.2)';
+                ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+                ctx.lineWidth = 1;
+                drawRoundedRect(x, y, w, h, r);
+                return;
+            }
+             ctx.fillStyle = CARD_COLORS[card.color]; drawRoundedRect(x, y, w, h, r); ctx.fillStyle = 'white'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; let valueText = card.value; let fontSize = w * 0.5; if (card.value === 'wild' || card.value === '+4') { fontSize = w * 0.25; } else if (card.value === 'skip') { valueText = '🚫'; } else if (card.value === 'reverse') { valueText = '🔄'; } ctx.font = `bold ${fontSize}px Inter`; ctx.fillText(valueText, x + w / 2, y + h / 2); ctx.font = `bold ${w * 0.2}px Inter`; ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.fillText(valueText, x + w * 0.1, y + h * 0.05);
+        }
+        function drawBackground() { const w = canvas.width; const h = canvas.height; switch (tableTexture) { case 'solid': ctx.fillStyle = tableColor; ctx.fillRect(0, 0, w, h); break; case 'wood': if (!offscreenWoodCanvas) { generateWoodTexture(); } if (offscreenWoodCanvas && offscreenWoodCanvas.width > 0 && offscreenWoodCanvas.height > 0) { ctx.drawImage(offscreenWoodCanvas, 0, 0); } break; case 'felt': default: if (!offscreenFeltCanvas) { generateFeltTexture(); } if (offscreenFeltCanvas && offscreenFeltCanvas.width > 0 && offscreenFeltCanvas.height > 0) { ctx.drawImage(offscreenFeltCanvas, 0, 0); } break; } }
+        function generateWoodTexture() {
+            offscreenWoodCanvas = document.createElement('canvas');
+            const w = canvas.width; const h = canvas.height;
+            if (w === 0 || h === 0 || isNaN(w) || isNaN(h)) {
+                offscreenWoodCanvas.width = 1;
+                offscreenWoodCanvas.height = 1;
+                const offCtx = offscreenWoodCanvas.getContext('2d');
+                if (offCtx) {
+                    offCtx.fillStyle = tableColor;
+                    offCtx.fillRect(0, 0, 1, 1);
+                }
+                return;
+            }
+            offscreenWoodCanvas.width = w; offscreenWoodCanvas.height = h;
+            const offCtx = offscreenWoodCanvas.getContext('2d');
+            seed = 1; offCtx.fillStyle = '#a17a4a'; offCtx.fillRect(0, 0, w, h); offCtx.strokeStyle = 'rgba(0, 0, 0, 0.2)'; offCtx.lineWidth = 2; offCtx.globalAlpha = 0.5; for (let i = 0; i < h; i += 20) { offCtx.beginPath(); offCtx.moveTo(0, i + random() * 10 - 5); for (let j = 0; j < w; j += 50) { offCtx.quadraticCurveTo(j + random() * 20, i + random() * 10 - 5, j + 50 + random() * 20, i + random() * 10 - 5); } offCtx.stroke(); } for (let i = 0; i < 5; i++) { const x = random() * w; const y = random() * h; offCtx.beginPath(); offCtx.ellipse(x, y, 10, 5, random() * Math.PI, 0, 2 * Math.PI); offCtx.stroke(); offCtx.beginPath(); offCtx.ellipse(x, y, 3, 2, random() * Math.PI, 0, 2 * Math.PI); offCtx.stroke(); } offCtx.globalAlpha = 1.0; offCtx.globalAlpha = 0.3; offCtx.fillStyle = tableColor; offCtx.fillRect(0, 0, w, h); offCtx.globalAlpha = 1.0;
+        }
+        function generateFeltTexture() {
+            offscreenFeltCanvas = document.createElement('canvas');
+            const w = canvas.width; const h = canvas.height;
+            if (w === 0 || h === 0 || isNaN(w) || isNaN(h)) {
+                offscreenFeltCanvas.width = 1;
+                offscreenFeltCanvas.height = 1;
+                const offCtx = offscreenFeltCanvas.getContext('2d');
+                 if (offCtx) {
+                     offCtx.fillStyle = tableColor;
+                     offCtx.fillRect(0, 0, 1, 1);
+                 }
+                return;
+            }
+            offscreenFeltCanvas.width = w; offscreenFeltCanvas.height = h;
+            const offCtx = offscreenFeltCanvas.getContext('2d');
+            offCtx.fillStyle = tableColor; offCtx.fillRect(0, 0, w, h); const noisePixelCount = (w * h) * 0.05; offCtx.globalAlpha = 0.1; for (let i = 0; i < noisePixelCount; i++) { offCtx.fillStyle = (Math.random() > 0.5) ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)'; offCtx.fillRect(Math.random() * w, Math.random() * h, 1, 1); } offCtx.globalAlpha = 1.0;
+        }
+
+
+        function draw() {
+            if (!ctx) return;
+            drawBackground();
+
+            switch (gameState) {
+                case 'MAINMENU': drawMainMenu(); break;
+                case 'SETTINGS': drawSettings(); break;
+                case 'PLAYERTURN':
+                case 'DRAWN':
+                case 'CPUTURN':
+                case 'TRANSITION':
+                case 'INTERMISSION':
+                case 'PLUSFOUR':
+                    drawGame();
+                    drawMessage();
+                    drawBackToMenuButton();
+                    drawTradeButton();
+                    drawFastForwardButton(); // NEW
+                    break;
+                case 'TRADE_SELECT_PLAYER':
+                    drawGame();
+                    drawTradeOverlay();
+                    drawMessage();
+                    break;
+                case 'TRADE_SELECT_CARDS':
+                    drawGame();
+                    drawTradeModal();
+                    break;
+                case 'TRADE_RESULT':
+                      drawGame();
+                      drawTradeResult();
+                      break;
+                case 'GAMEOVER':
+                    drawGame(); drawGameOver(); break;
+            }
+            drawAnimations();
+        }
+
+        function drawMainMenu() { const w = canvas.width; const h = canvas.height; ctx.fillStyle = 'white'; ctx.font = `bold ${h * 0.07}px Inter`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText("Suited Uno Garbage", w / 2, h * 0.3); ctx.font = `bold ${h * 0.04}px Inter`; ctx.fillText(message, w / 2, h * 0.4); const btnW = mainMenuButtons.start.w; const btnH = mainMenuButtons.start.h; ctx.save(); const isHoveredStart = (hoveredRegion === mainMenuButtons.start); const scaleStart = isHoveredStart ? 1.05 : 1.0; const cxStart = mainMenuButtons.start.x + btnW / 2; const cyStart = mainMenuButtons.start.y + btnH / 2; ctx.translate(cxStart, cyStart); ctx.scale(scaleStart, scaleStart); if (isHoveredStart) { ctx.shadowColor = 'rgba(0, 0, 0, 0.4)'; ctx.shadowBlur = 10; ctx.shadowOffsetX = 4; ctx.shadowOffsetY = 4; ctx.fillStyle = '#70c970'; } else { ctx.fillStyle = CARD_COLORS.green; } ctx.strokeStyle = 'white'; ctx.lineWidth = 2; drawRoundedRect(-btnW / 2, -btnH / 2, btnW, btnH, 10); ctx.shadowColor = 'transparent'; ctx.fillStyle = 'white'; ctx.font = `bold ${h * 0.05}px Inter`; ctx.fillText("Start Game", 0, 0); ctx.restore(); ctx.save(); const isHoveredSettings = (hoveredRegion === mainMenuButtons.settings); const scaleSettings = isHoveredSettings ? 1.05 : 1.0; const cxSettings = mainMenuButtons.settings.x + btnW / 2; const cySettings = mainMenuButtons.settings.y + btnH / 2; ctx.translate(cxSettings, cySettings); ctx.scale(scaleSettings, scaleSettings); if (isHoveredSettings) { ctx.shadowColor = 'rgba(0, 0, 0, 0.4)'; ctx.shadowBlur = 10; ctx.shadowOffsetX = 4; ctx.shadowOffsetY = 4; ctx.fillStyle = '#158be0'; } else { ctx.fillStyle = CARD_COLORS.blue; } ctx.strokeStyle = 'white'; ctx.lineWidth = 2; drawRoundedRect(-btnW / 2, -btnH / 2, btnW, btnH, 10); ctx.shadowColor = 'transparent'; ctx.fillStyle = 'white'; ctx.font = `bold ${h * 0.05}px Inter`; ctx.fillText("Settings", 0, 0); ctx.restore(); }
+        function drawSettings() { const w = canvas.width; const h = canvas.height; ctx.fillStyle = 'white'; ctx.font = `bold ${h * 0.07}px Inter`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText("Settings", w / 2, h * 0.15); ctx.font = `bold ${h * 0.04}px Inter`; ctx.textAlign = 'left'; ctx.fillText("Player Count:", w * 0.1, h * 0.25); const buttonW = settingsButtons.playerCounts[0].w; const buttonH = settingsButtons.playerCounts[0].h; for (let i = 0; i < settingsButtons.playerCounts.length; i++) { const region = settingsButtons.playerCounts[i]; ctx.save(); const isHovered = (hoveredRegion === region); const scale = isHovered ? 1.05 : 1.0; const cx = region.x + buttonW / 2; const cy = region.y + buttonH / 2; ctx.translate(cx, cy); ctx.scale(scale, scale); if (isHovered) { ctx.shadowColor = 'rgba(0, 0, 0, 0.4)'; ctx.shadowBlur = 10; ctx.shadowOffsetX = 4; ctx.shadowOffsetY = 4; } if (region.num === numPlayers) { ctx.fillStyle = isHovered ? '#f2c57c' : CARD_COLORS.yellow; ctx.strokeStyle = 'white'; } else { ctx.fillStyle = isHovered ? '#70c970' : CARD_COLORS.green; ctx.strokeStyle = '#ccc'; } ctx.lineWidth = 2; drawRoundedRect(-buttonW / 2, -buttonH / 2, buttonW, buttonH, 10); ctx.shadowColor = 'transparent'; ctx.fillStyle = 'white'; ctx.font = `bold ${h * 0.05}px Inter`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(region.num.toString(), 0, 0); ctx.restore(); } ctx.font = `bold ${h * 0.04}px Inter`; ctx.textAlign = 'left'; ctx.fillText("Table Color:", w * 0.1, h * 0.40); const swatchSize = settingsButtons.colorSwatches[0].w; for (let i = 0; i < settingsButtons.colorSwatches.length; i++) { const option = TABLE_COLOR_OPTIONS[i]; const region = settingsButtons.colorSwatches[i]; ctx.save(); const isHovered = (hoveredRegion === region); const scale = isHovered ? 1.05 : 1.0; const cx = region.x + swatchSize / 2; const cy = region.y + swatchSize / 2; ctx.translate(cx, cy); ctx.scale(scale, scale); if (isHovered) { ctx.shadowColor = 'rgba(0, 0, 0, 0.4)'; ctx.shadowBlur = 10; ctx.shadowOffsetX = 4; ctx.shadowOffsetY = 4; } ctx.fillStyle = option.color; if (option.color === tableColor) { ctx.strokeStyle = CARD_COLORS.yellow; ctx.lineWidth = 4; } else { ctx.strokeStyle = 'white'; ctx.lineWidth = 2; } drawRoundedRect(-swatchSize / 2, -swatchSize / 2, swatchSize, swatchSize, 10); ctx.restore(); } ctx.fillStyle = 'white'; ctx.font = `bold ${h * 0.04}px Inter`; ctx.textAlign = 'left'; ctx.fillText("Table Texture:", w * 0.1, h * 0.55); const texBtnW = settingsButtons.textures.solid.w; const texBtnH = settingsButtons.textures.solid.h; const textureButtons = [settingsButtons.textures.solid, settingsButtons.textures.felt, settingsButtons.textures.wood]; const textureLabels = ['Solid', 'Felt', 'Wood']; for (let i = 0; i < textureButtons.length; i++) { const region = textureButtons[i]; const label = textureLabels[i]; ctx.save(); const isHovered = (hoveredRegion === region); const scale = isHovered ? 1.05 : 1.0; const cx = region.x + texBtnW / 2; const cy = region.y + texBtnH / 2; ctx.translate(cx, cy); ctx.scale(scale, scale); if (isHovered) { ctx.shadowColor = 'rgba(0, 0, 0, 0.4)'; ctx.shadowBlur = 10; ctx.shadowOffsetX = 4; ctx.shadowOffsetY = 4; } if (tableTexture === region.value) { ctx.fillStyle = isHovered ? '#f2c57c' : CARD_COLORS.yellow; ctx.strokeStyle = 'white'; } else { ctx.fillStyle = isHovered ? '#70c970' : CARD_COLORS.green; ctx.strokeStyle = '#ccc'; } ctx.lineWidth = 2; drawRoundedRect(-texBtnW / 2, -texBtnH / 2, texBtnW, texBtnH, 10); ctx.shadowColor = 'transparent'; ctx.fillStyle = 'white'; ctx.font = `bold ${h * 0.04}px Inter`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(label, 0, 0); ctx.restore(); } ctx.fillStyle = 'white'; ctx.font = `bold ${h * 0.04}px Inter`; ctx.textAlign = 'left'; ctx.fillText("Opponents Face Up:", w * 0.1, h * 0.70); const btnW_toggle = settingsButtons.opponentFaceUp.off.w; const btnH_toggle = settingsButtons.opponentFaceUp.off.h; let region = settingsButtons.opponentFaceUp.off; ctx.save(); let isHovered = (hoveredRegion === region); let scale = isHovered ? 1.05 : 1.0; let cx = region.x + btnW_toggle / 2; let cy = region.y + btnH_toggle / 2; ctx.translate(cx, cy); ctx.scale(scale, scale); if (isHovered) { ctx.shadowColor = 'rgba(0, 0, 0, 0.4)'; ctx.shadowBlur = 10; ctx.shadowOffsetX = 4; ctx.shadowOffsetY = 4; } if (!showOpponentCardsFaceUp) { ctx.fillStyle = isHovered ? '#f2c57c' : CARD_COLORS.yellow; ctx.strokeStyle = 'white'; } else { ctx.fillStyle = isHovered ? '#e06b6b' : CARD_COLORS.red; ctx.strokeStyle = '#ccc'; } ctx.lineWidth = 2; drawRoundedRect(-btnW_toggle / 2, -btnH_toggle / 2, btnW_toggle, btnH_toggle, 10); ctx.shadowColor = 'transparent'; ctx.fillStyle = 'white'; ctx.font = `bold ${h * 0.05}px Inter`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText("Off", 0, 0); ctx.restore(); region = settingsButtons.opponentFaceUp.on; ctx.save(); isHovered = (hoveredRegion === region); scale = isHovered ? 1.05 : 1.0; cx = region.x + btnW_toggle / 2; cy = region.y + btnH_toggle / 2; ctx.translate(cx, cy); ctx.scale(scale, scale); if (isHovered) { ctx.shadowColor = 'rgba(0, 0, 0, 0.4)'; ctx.shadowBlur = 10; ctx.shadowOffsetX = 4; ctx.shadowOffsetY = 4; } if (showOpponentCardsFaceUp) { ctx.fillStyle = isHovered ? '#f2c57c' : CARD_COLORS.yellow; ctx.strokeStyle = 'white'; } else { ctx.fillStyle = isHovered ? '#70c970' : CARD_COLORS.green; ctx.strokeStyle = '#ccc'; } ctx.lineWidth = 2; drawRoundedRect(-btnW_toggle / 2, -btnH_toggle / 2, btnW_toggle, btnH_toggle, 10); ctx.shadowColor = 'transparent'; ctx.fillStyle = 'white'; ctx.font = `bold ${h * 0.05}px Inter`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText("On", 0, 0); ctx.restore(); const btnW = settingsButtons.back.w; const btnH = settingsButtons.back.h; ctx.save(); isHovered = (hoveredRegion === settingsButtons.back); scale = isHovered ? 1.05 : 1.0; cx = settingsButtons.back.x + btnW / 2; cy = settingsButtons.back.y + btnH / 2; ctx.translate(cx, cy); ctx.scale(scale, scale); if (isHovered) { ctx.shadowColor = 'rgba(0, 0, 0, 0.4)'; ctx.shadowBlur = 10; ctx.shadowOffsetX = 4; ctx.shadowOffsetY = 4; ctx.fillStyle = '#e06b6b'; } else { ctx.fillStyle = CARD_COLORS.red; } ctx.strokeStyle = 'white'; ctx.lineWidth = 2; drawRoundedRect(-btnW / 2, -btnH / 2, btnW, btnH, 10); ctx.shadowColor = 'transparent'; ctx.fillStyle = 'white'; ctx.font = `bold ${h * 0.05}px Inter`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText("Back to Menu", 0, 0); ctx.restore(); }
+
+
+        function drawGame() {
+            const w = canvas.width;
+            const h = canvas.height;
+            const padding = w * 0.01;
+            const humanCardW = deckRegion.w; // Use base card W from deck region
+            const humanCardH = deckRegion.h; // Use base card H from deck region
+            const currentPlayer = players[currentPlayerIndex];
+            if (!currentPlayer) return;
+            const otherPlayers = players.filter((p, index) => index !== currentPlayerIndex);
+
+            // Draw Other Player Grids (Top Area)
+            cpuGridAreas = [];
+            if (otherPlayers.length > 0) {
+                const cpuPadding = w * 0.005;
+                const topAreaY = h * 0.1;
+                const topAreaHeight = h * 0.3;
+                const topAreaWidth = w * 0.98;
+                const maxGrids = 5;
+                const availableWidth = topAreaWidth - (maxGrids - 1) * padding;
+                let cpuGridW = availableWidth / maxGrids;
+                let cpuCardW = (cpuGridW - 4 * cpuPadding) / 5;
+                let cpuCardH = cpuCardW * CARD_ASPECT_RATIO;
+                let cpuGridH = 2 * cpuCardH + 1 * cpuPadding;
+                if (cpuGridH > topAreaHeight) { cpuGridH = topAreaHeight; cpuCardH = (cpuGridH - 1 * cpuPadding) / 2; cpuCardW = cpuCardH / CARD_ASPECT_RATIO; cpuGridW = 5 * cpuCardW + 4 * cpuPadding; }
+                const totalCpuWidth = otherPlayers.length * cpuGridW + (otherPlayers.length - 1) * padding;
+                let cpuStartX = (w - totalCpuWidth) / 2;
+
+
+                for (let i = 0; i < otherPlayers.length; i++) {
+                    const player = otherPlayers[i];
+                    const playerIndex = players.indexOf(player);
+                    const currentGridX = cpuStartX + i * (cpuGridW + padding);
+                    const currentGridY = topAreaY;
+                    // Grid is always 2 rows high, 10 cards
+                    cpuGridAreas.push({ x: currentGridX, y: currentGridY - h*0.03, w: cpuGridW, h: cpuGridH + h*0.03, playerIndex: playerIndex });
+
+                    if (gameState === 'TRADE_SELECT_PLAYER' && player.isCPU) {
+                        ctx.save();
+                        if (hoveredRegion && hoveredRegion.playerIndex === playerIndex) {
+                            ctx.fillStyle = 'rgba(255, 255, 0, 0.3)'; ctx.strokeStyle = 'yellow'; ctx.lineWidth = 2;
+                        } else {
+                            ctx.fillStyle = 'rgba(0, 100, 255, 0.2)'; ctx.strokeStyle = 'lightblue'; ctx.lineWidth = 1;
+                        }
+                        ctx.beginPath(); ctx.rect(currentGridX - cpuPadding, currentGridY - h*0.035, cpuGridW + cpuPadding*2, cpuGridH + h*0.04); ctx.fill(); ctx.stroke(); ctx.restore();
+                    }
+
+                    ctx.fillStyle = 'white'; ctx.font = `bold ${h * 0.025}px Inter`; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+                    const playerName = player.isCPU ? `Player ${player.id} (CPU)` : `Player ${player.id}`;
+                    ctx.fillText(playerName, currentGridX + cpuGridW / 2, topAreaY - h * 0.01);
+
+                    // Draw all 10 cards in grid
+                    for (let j = 0; j < 10; j++) {
+                        const row = Math.floor(j / 5); const col = j % 5;
+                        const x = currentGridX + col * (cpuCardW + cpuPadding); const y = topAreaY + row * (cpuCardH + cpuPadding);
+                        let showFaceUp = (playerIndex === 0) || showOpponentCardsFaceUp || gameState === 'GAMEOVER';
+                        const cardInSlot = player.grid[j];
+                        drawCard(cardInSlot, x, y, cpuCardW, cpuCardH, showFaceUp);
+                    }
+                }
+            }
+
+            // Draw Deck and Discard Pile
+            const topAreaY = deckRegion.y;
+            drawCard(null, deckRegion.x, deckRegion.y, humanCardW, humanCardH, false);
+            discardRegion = { x: w * 0.05 + humanCardW + padding, y: topAreaY, w: humanCardW, h: humanCardH };
+            const topDiscard = discardPile[discardPile.length - 1];
+            if (topDiscard) { 
+                const isAnimatingToDiscard = animations.some(a => a.endX === discardRegion.x); 
+                const isAnimatingFromDiscard = animations.some(a => a.card === topDiscard && a.startX === discardRegion.x); 
+                if (!isAnimatingToDiscard && !isAnimatingFromDiscard) { 
+                    drawCard(topDiscard, discardRegion.x, discardRegion.y, humanCardW, humanCardH, true); 
+                } 
+            }
+            else { 
+                ctx.strokeStyle = 'white'; ctx.lineWidth = 2; ctx.strokeRect(discardRegion.x, discardRegion.y, humanCardW, humanCardH); 
+            }
+
+            // --- NEW: Draw +4 Countdown ---
+            if (gameState === 'PLUSFOUR' && currentPlayerIndex === 0) {
+                const count = cardsToDiscardForPlusFour.length;
+                ctx.save();
+                // Draw greyed out overlay
+                ctx.fillStyle = (count === 4) ? 'rgba(92, 184, 92, 0.7)' : 'rgba(0,0,0,0.5)';
+                drawRoundedRect(discardRegion.x, discardRegion.y, discardRegion.w, discardRegion.h, discardRegion.w * 0.1);
+                
+                // Draw text
+                ctx.fillStyle = (count === 4) ? 'white' : CARD_COLORS.red;
+                ctx.font = `bold ${h * 0.07}px Inter`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(`${count}/4`, discardRegion.x + discardRegion.w / 2, discardRegion.y + discardRegion.h / 2);
+                ctx.restore();
+            }
+
+
+            // Draw Current Player Grid (Bottom Centered)
+            const gridWidth = 5 * humanCardW + 4 * padding;
+            const gridHeight = 2 * humanCardH + 1 * padding;
+            const gridStartX = (w - gridWidth) / 2;
+            const gridStartY = h * 0.95 - gridHeight;
+
+            ctx.fillStyle = CARD_COLORS.yellow; ctx.font = `bold ${h * 0.03}px Inter`; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+            const playerNameText = currentPlayer.isCPU ? `Player ${currentPlayer.id} (CPU)` : `Player ${currentPlayer.id}`;
+            ctx.fillText(playerNameText, gridStartX + gridWidth / 2, gridStartY - h * 0.01);
+
+            let showBottomGridFaceUp = (currentPlayerIndex === 0) || showOpponentCardsFaceUp || gameState === 'GAMEOVER';
+
+            // Draw 10 grid slots
+            for (let i = 0; i < 10; i++) {
+                const row = Math.floor(i / 5);
+                const col = i % 5;
+                const x = gridStartX + col * (humanCardW + padding);
+                const y = gridStartY + row * (humanCardH + padding);
+                const region = { x, y, w: humanCardW, h: humanCardH, index: i }; // Create temporary region for drawing
+                
+                // Use the static gridRegions for layout
+                gridRegions[i] = { ...region }; // Update main gridRegions
+
+                const cardInSlot = currentPlayer.grid[i];
+                const isCardAnimating = animations.some(a => (a.card === cardInSlot && cardInSlot != null) || (a.endX === region.x && a.endY === region.y));
+
+                if (!isCardAnimating) {
+                    drawCard(cardInSlot, region.x, region.y, region.w, region.h, showBottomGridFaceUp);
+                    // Highlight selected cards during +4
+                    if (gameState === 'PLUSFOUR' && currentPlayerIndex === 0 && cardsToDiscardForPlusFour.includes(i)) {
+                         ctx.strokeStyle = CARD_COLORS.red; ctx.lineWidth = 4;
+                         ctx.strokeRect(region.x - 2, region.y - 2, region.w + 4, region.h + 4);
+                    }
+                } else if (!cardInSlot && !isCardAnimating) { 
+                     ctx.fillStyle = 'rgba(0,0,0,0.2)';
+                     ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+                     ctx.lineWidth = 1;
+                     drawRoundedRect(region.x, region.y, region.w, region.h, region.w * 0.1);
+                 }
+            }
+
+            // Draw Drawn Card
+            const drawnW = drawnCardRegion.w; const drawnH = drawnCardRegion.h;
+            drawnCardRegion.y = gridStartY + (gridHeight - drawnH) / 2; // Recalculate Y
+            if (drawnCard) { 
+                const isCardAnimating = animations.some(a => a.card === drawnCard); 
+                if (!isCardAnimating) { 
+                    drawCard(drawnCard, drawnCardRegion.x, drawnCardRegion.y, drawnCardRegion.w, drawnCardRegion.h, true); 
+                } 
+            } 
+            
+            // Recalculate Fast Forward button Y
+            fastForwardButtonRegion.y = drawnCardRegion.y + (drawnH - fastForwardButtonRegion.h) / 2;
+        }
+
+        function drawMessage() { const w = canvas.width; const h = canvas.height; const padding = w * 0.01; const boxW = messageRegion.w; const boxH = messageRegion.h; const boxX = messageRegion.x; const boxY = messageRegion.y; ctx.fillStyle = 'rgba(34, 34, 34, 0.8)'; ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)'; ctx.lineWidth = 1; drawRoundedRect(boxX, boxY, boxW, boxH, 10); ctx.fillStyle = 'white'; ctx.font = `bold ${h * 0.025}px Inter`; ctx.textAlign = 'left'; ctx.textBaseline = 'top'; const textX = boxX + padding; const textY = boxY + padding; const textMaxWidth = boxW - (padding * 2); const lineHeight = h * 0.03; wrapText(message, textX, textY, textMaxWidth, lineHeight); }
+        function drawBackToMenuButton() { const h = canvas.height; const region = backToMenuButtonRegion; const btnW = region.w; const btnH = region.h; ctx.save(); const isHovered = (hoveredRegion === region); const scale = isHovered ? 1.05 : 1.0; const cx = region.x + btnW / 2; const cy = region.y + btnH / 2; ctx.translate(cx, cy); ctx.scale(scale, scale); if (isHovered) { ctx.shadowColor = 'rgba(0, 0, 0, 0.4)'; ctx.shadowBlur = 10; ctx.shadowOffsetX = 4; ctx.shadowOffsetY = 4; ctx.fillStyle = '#e06b6b'; } else { ctx.fillStyle = CARD_COLORS.red; } ctx.strokeStyle = 'white'; ctx.lineWidth = 2; drawRoundedRect(-btnW / 2, -btnH / 2, btnW, btnH, 10); ctx.shadowColor = 'transparent'; ctx.fillStyle = 'white'; ctx.font = `bold ${h * 0.03}px Inter`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText("Main Menu", 0, 0); ctx.restore(); }
+        function drawGameOver() { const w = canvas.width; const h = canvas.height; ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'; ctx.fillRect(0, 0, w, h); ctx.fillStyle = 'white'; ctx.font = `bold ${h * 0.08}px Inter`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(message, w / 2, h * 0.4); const btnW = restartButtonRegion.w; const btnH = restartButtonRegion.h; const btnX = restartButtonRegion.x; const btnY = restartButtonRegion.y; ctx.save(); const isHovered = (hoveredRegion === restartButtonRegion); const scale = isHovered ? 1.05 : 1.0; const cx = btnX + btnW / 2; const cy = btnY + btnH / 2; ctx.translate(cx, cy); ctx.scale(scale, scale); if (isHovered) { ctx.shadowColor = 'rgba(0, 0, 0, 0.4)'; ctx.shadowBlur = 10; ctx.shadowOffsetX = 4; ctx.shadowOffsetY = 4; ctx.fillStyle = '#70c970'; } else { ctx.fillStyle = CARD_COLORS.green; } ctx.strokeStyle = 'white'; ctx.lineWidth = 2; drawRoundedRect(-btnW / 2, -btnH / 2, btnW, btnH, 10); ctx.shadowColor = 'transparent'; ctx.fillStyle = 'white'; ctx.font = `bold ${h * 0.05}px Inter`; ctx.fillText("Restart", 0, 0); ctx.restore(); }
+
+
+        // --- Trade & Fast Forward Draw Functions ---
+        function drawTradeButton() {
+            const isPlayerTurn = (gameState === 'PLAYERTURN' || gameState === 'DRAWN') && currentPlayerIndex === 0;
+            // NEW: Only allow trading if opponents are face up
+            if (!isPlayerTurn || !showOpponentCardsFaceUp) return;
+            const h = canvas.height;
+            const region = tradeButtonRegion;
+            const btnW = region.w; const btnH = region.h;
+            ctx.save(); const isHovered = (hoveredRegion === region); const scale = isHovered ? 1.05 : 1.0; const cx = region.x + btnW / 2; const cy = region.y + btnH / 2; ctx.translate(cx, cy); ctx.scale(scale, scale);
+            if (isHovered) { ctx.shadowColor = 'rgba(0, 0, 0, 0.4)'; ctx.shadowBlur = 10; ctx.shadowOffsetX = 4; ctx.shadowOffsetY = 4; ctx.fillStyle = '#f2c57c';
+            } else { ctx.fillStyle = CARD_COLORS.yellow; }
+            ctx.strokeStyle = 'white'; ctx.lineWidth = 2; drawRoundedRect(-btnW / 2, -btnH / 2, btnW, btnH, 10);
+            ctx.shadowColor = 'transparent'; ctx.fillStyle = 'white'; ctx.font = `bold ${h * 0.04}px Inter`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText("Trade", 0, 0); ctx.restore();
+        }
+
+        // NEW: Draw Fast Forward Button
+        function drawFastForwardButton() {
+            const h = canvas.height;
+            const region = fastForwardButtonRegion;
+            const btnW = region.w; const btnH = region.h;
+            ctx.save(); 
+            const isHovered = (hoveredRegion === region); 
+            const scale = isHovered ? 1.05 : 1.0; 
+            const cx = region.x + btnW / 2; const cy = region.y + btnH / 2; 
+            ctx.translate(cx, cy); ctx.scale(scale, scale); 
+            if (isHovered) { ctx.shadowColor = 'rgba(0, 0, 0, 0.4)'; ctx.shadowBlur = 8; ctx.shadowOffsetX = 2; ctx.shadowOffsetY = 2; }
+            // Active state (green) vs Inactive state (blue)
+            ctx.fillStyle = fastForwardEnabled ? (isHovered ? '#70c970' : CARD_COLORS.green) : (isHovered ? '#158be0' : CARD_COLORS.blue);
+            ctx.strokeStyle = 'white'; ctx.lineWidth = 2;
+            // Draw as a circle
+            ctx.beginPath(); ctx.arc(0, 0, btnW / 2, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+            ctx.shadowColor = 'transparent'; ctx.fillStyle = 'white'; ctx.font = `bold ${h * 0.02}px Inter`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; 
+            ctx.fillText("FF ▶▶", 0, 0);
+            ctx.restore();
+        }
+
+        function drawTradeOverlay() {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.6)'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+
+        function drawTradeModal() {
+            const w = canvas.width; const h = canvas.height; const modalPadding = w * 0.02;
+            const modalWidth = w * 0.85;
+            const modalHeight = h * 0.85;
+            const modalX = (w - modalWidth) / 2; const modalY = (h - modalHeight) / 2;
+
+            ctx.fillStyle = 'rgba(50, 50, 50, 0.9)'; ctx.strokeStyle = 'white'; ctx.lineWidth = 2;
+            drawRoundedRect(modalX, modalY, modalWidth, modalHeight, 20);
+
+            let gridRightEdge = 0;
+            if(tradeModalRegions.cpuGrid && tradeModalRegions.cpuGrid.length > 4) {
+                 gridRightEdge = tradeModalRegions.cpuGrid[4].x + tradeModalRegions.cpuGrid[4].w;
+            } else {
+                 gridRightEdge = modalX + modalWidth * 0.6;
+                 console.error("Trade modal regions not ready in drawTradeModal");
+            }
+
+            const textColumnX = gridRightEdge + modalPadding * 2;
+            const textColumnWidth = modalX + modalWidth - modalPadding * 1.5 - textColumnX;
+            let currentTextY = modalY + modalPadding * 1.2;
+
+            ctx.fillStyle = 'white'; ctx.font = `bold ${h * 0.04}px Inter`; 
+            ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+            if (players[tradeTargetPlayerIndex]) {
+                 ctx.fillText(`Trade Offer with Player ${players[tradeTargetPlayerIndex].id}`, textColumnX, currentTextY);
+            } else {
+                 ctx.fillText(`Trade Offer`, textColumnX, currentTextY);
+            }
+            currentTextY += h * 0.05 + modalPadding;
+
+            ctx.font = `bold ${h * 0.03}px Inter`; 
+            
+            // --- FIX: Align text with the top of the grids ---
+            if (tradeModalRegions.cpuGrid.length > 0) {
+                // Align "Player X's Cards" text with top of CPU grid
+                const cpuTextY = tradeModalRegions.cpuGrid[0].y;
+                if (players[tradeTargetPlayerIndex]) {
+                    ctx.fillText(`Player ${players[tradeTargetPlayerIndex].id}'s Cards (Select 1)`, textColumnX, cpuTextY);
+                }
+            }
+
+            if (tradeModalRegions.playerGrid.length > 0) {
+                // Align "Your Cards" text with top of Player grid
+                const playerTextY = tradeModalRegions.playerGrid[0].y;
+                ctx.fillText("Your Cards (Select 1)", textColumnX, playerTextY);
+                
+                // Position the message below the "Your Cards" text
+                // Give it some breathing room
+                currentTextY = playerTextY + h * 0.08; 
+            }
+
+            ctx.font = `bold ${h * 0.025}px Inter`; 
+            wrapText(message, textColumnX, currentTextY, textColumnWidth, h * 0.03);
+
+
+            // Draw CPU Grid
+             const cpuPlayer = players[tradeTargetPlayerIndex];
+             if (cpuPlayer && tradeModalRegions.cpuGrid && tradeModalRegions.cpuGrid.length > 0) {
+                 for (let i = 0; i < 10; i++) {
+                     const region = tradeModalRegions.cpuGrid[i];
+                     const card = cpuPlayer.grid[i];
+                     if (region) {
+                         drawCard(card, region.x, region.y, region.w, region.h, true);
+                         if (i === cpuTradeCardIndex) {
+                             ctx.strokeStyle = CARD_COLORS.yellow; ctx.lineWidth = 4;
+                             ctx.strokeRect(region.x - 2, region.y - 2, region.w + 4, region.h + 4);
+                         }
+                     } else {
+                         console.error("CPU trade grid region undefined for index:", i);
+                     }
+                 }
+             }
+
+
+            // Draw Player Grid
+            const player = players[0];
+             if(player && tradeModalRegions.playerGrid && tradeModalRegions.playerGrid.length > 0) {
+                for (let i = 0; i < 10; i++) {
+                    const region = tradeModalRegions.playerGrid[i];
+                     const card = player.grid[i];
+                     if (region) {
+                         drawCard(card, region.x, region.y, region.w, region.h, true);
+                         if (i === playerTradeCardIndex) {
+                             ctx.strokeStyle = CARD_COLORS.yellow; ctx.lineWidth = 4;
+                             ctx.strokeRect(region.x - 2, region.y - 2, region.w + 4, region.h + 4);
+                         }
+                     } else {
+                          console.error("Player trade grid region undefined for index:", i);
+                     }
+                }
+             }
+
+            // Draw Buttons
+            let region = tradeModalRegions.cancelButton;
+            if(region) {
+                let btnW = region.w; let btnH = region.h;
+                ctx.save(); let isHovered = (hoveredRegion === region); let scale = isHovered ? 1.05 : 1.0; let cx = region.x + btnW / 2; let cy = region.y + btnH / 2; ctx.translate(cx, cy); ctx.scale(scale, scale);
+                if (isHovered) { ctx.shadowColor = 'rgba(0, 0, 0, 0.4)'; ctx.shadowBlur = 10; ctx.shadowOffsetX = 4; ctx.shadowOffsetY = 4; ctx.fillStyle = '#e06b6b'; } else { ctx.fillStyle = CARD_COLORS.red; }
+                ctx.strokeStyle = 'white'; ctx.lineWidth = 2; drawRoundedRect(-btnW / 2, -btnH / 2, btnW, btnH, 10);
+                ctx.shadowColor = 'transparent'; ctx.fillStyle = 'white'; ctx.font = `bold ${h * 0.04}px Inter`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText("Cancel", 0, 0); ctx.restore();
+            }
+
+            region = tradeModalRegions.confirmButton;
+             if(region) {
+                let btnW = region.w; let btnH = region.h;
+                const canConfirm = playerTradeCardIndex !== -1 && cpuTradeCardIndex !== -1;
+                 ctx.save(); let isHovered = (hoveredRegion === region && canConfirm); scale = isHovered ? 1.05 : 1.0; cx = region.x + btnW / 2; cy = region.y + btnH / 2; ctx.translate(cx, cy); ctx.scale(scale, scale);
+                if (isHovered) { ctx.shadowColor = 'rgba(0, 0, 0, 0.4)'; ctx.shadowBlur = 10; ctx.shadowOffsetX = 4; ctx.shadowOffsetY = 4; }
+                ctx.fillStyle = canConfirm ? (isHovered ? '#70c970' : CARD_COLORS.green) : '#888';
+                ctx.strokeStyle = canConfirm ? 'white' : '#aaa'; ctx.lineWidth = 2; drawRoundedRect(-btnW / 2, -btnH / 2, btnW, btnH, 10);
+                ctx.shadowColor = 'transparent'; ctx.fillStyle = canConfirm ? 'white' : '#ccc'; ctx.font = `bold ${h * 0.04}px Inter`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText("Offer Trade", 0, 0); ctx.restore();
+             }
+        }
+
+        function drawTradeResult() {
+             const w = canvas.width; const h = canvas.height; drawTradeOverlay();
+             ctx.fillStyle = 'white'; ctx.font = `bold ${h * 0.06}px Inter`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+             ctx.fillText(tradeResultMessage, w / 2, h / 2);
+        }
+
+        // --- Animation Functions ---
+        function update(dt) { if (isNaN(dt) || dt <= 0) dt = 16.67; for (let i = animations.length - 1; i >= 0; i--) { const anim = animations[i]; anim.progress += (dt / anim.duration); if (anim.progress >= 1) { anim.progress = 1; animations.splice(i, 1); if (anim.onEnd) anim.onEnd(); } const ease = 1 - (1 - anim.progress) * (1 - anim.progress); if (anim.progress < 1) { anim.x = anim.startX + (anim.endX - anim.startX) * ease; anim.y = anim.startY + (anim.endY - anim.startY) * ease; anim.w = anim.startW + (anim.endW - anim.startW) * ease; anim.h = anim.startH + (anim.endH - anim.startH) * ease; } } }
+        function drawAnimations() { for (const anim of animations) { drawCard(anim.card, anim.x, anim.y, anim.w, anim.h, true); } }
+
+
+        function gameLoop(timestamp) { const deltaTime = timestamp - lastTime; lastTime = timestamp; update(deltaTime); draw(); requestAnimationFrame(gameLoop); }
+
+        // --- Event Coordinate Helper ---
+        function getEventCoords(event) { const rect = canvas.getBoundingClientRect(); let clientX, clientY; if (event.touches && event.touches.length > 0) { clientX = event.touches[0].clientX; clientY = event.touches[0].clientY; } else if (event.changedTouches && event.changedTouches.length > 0) { clientX = event.changedTouches[0].clientX; clientY = event.changedTouches[0].clientY; } else { clientX = event.clientX; clientY = event.clientY; } const x = clientX - rect.left; const y = clientY - rect.top; return { x, y }; }
+
+
+        // --- Event Handlers ---
+
+        function handleClick(event) {
+            if (event.preventDefault) event.preventDefault();
+            const { x, y } = getEventCoords(event);
+            const w = canvas.width;
+            const h = canvas.height;
+
+            if ((gameState === 'TRANSITION' || gameState === 'INTERMISSION')
+                 && !(gameState === 'TRADE_SELECT_CARDS' && (isPointInRect(x,y, tradeModalRegions.cancelButton) || isPointInRect(x,y, tradeModalRegions.confirmButton)))
+                ) { return; }
+
+            // NEW: Fast Forward button can be clicked almost anytime
+            if (isPointInRect(x, y, fastForwardButtonRegion) && gameState !== 'MAINMENU' && gameState !== 'SETTINGS' && gameState !== 'GAMEOVER') {
+                fastForwardEnabled = !fastForwardEnabled;
+                draw();
+                return;
+            }
+            // NEW: Trade result message click to dismiss
+            if (gameState === 'TRADE_RESULT') {
+                // Clicking anywhere dismisses the message and returns to the game
+                 gameState = preTradeGameState || 'PLAYERTURN';
+                 message = `Player ${players[currentPlayerIndex].id}: Your turn continues.`;
+                 if(gameState === 'DRAWN') message = `Player ${players[currentPlayerIndex].id}: Click grid card to replace, or discard pile.`;
+                 if(gameState === 'PLAYERTURN') message = `Player ${players[currentPlayerIndex].id}: Click deck or discard to draw.`;
+                 tradeTargetPlayerIndex = -1; playerTradeCardIndex = -1; cpuTradeCardIndex = -1; preTradeGameState = null; tradeResultMessage = ""; 
+                 if (checkWin()) return;
+                 draw();
+                return;
+            }
+
+
+            switch (gameState) {
+                case 'MAINMENU':
+                    if (isPointInRect(x, y, mainMenuButtons.start)) { initGame(); return; }
+                    if (isPointInRect(x, y, mainMenuButtons.settings)) { gameState = 'SETTINGS'; message = ""; return; }
+                    break;
+                case 'SETTINGS':
+                    if (isPointInRect(x, y, settingsButtons.back)) { gameState = 'MAINMENU'; message = `Settings saved. (${numPlayers} players)`; return; }
+                    for (const b of settingsButtons.playerCounts) { if (isPointInRect(x, y, b)) { numPlayers = b.num; draw(); return; } }
+                    // --- UPDATED: Update background color when clicking swatches ---
+                    for (const b of settingsButtons.colorSwatches) { 
+                        if (isPointInRect(x, y, b)) { 
+                            tableColor = b.color; 
+                            updateBodyBackgroundColor(); // <-- Added call here
+                            regenerateTextures(); 
+                            draw(); 
+                            return; 
+                        } 
+                    }
+                    if (isPointInRect(x, y, settingsButtons.textures.solid)) { tableTexture = 'solid'; draw(); return; }
+                    if (isPointInRect(x, y, settingsButtons.textures.felt)) { tableTexture = 'felt'; draw(); return; }
+                    if (isPointInRect(x, y, settingsButtons.textures.wood)) { tableTexture = 'wood'; draw(); return; }
+                    if (isPointInRect(x, y, settingsButtons.opponentFaceUp.on)) { showOpponentCardsFaceUp = true; draw(); return; }
+                    if (isPointInRect(x, y, settingsButtons.opponentFaceUp.off)) { showOpponentCardsFaceUp = false; draw(); return; }
+                    break;
+                 case 'PLAYERTURN':
+                 case 'DRAWN':
+                 case 'CPUTURN':
+                 case 'PLUSFOUR': // Combined logic block
+                      if (isPointInRect(x, y, backToMenuButtonRegion)) { 
+                          gameState = 'MAINMENU'; message = "Returned to Main Menu."; 
+                          players = []; deck = []; discardPile = []; drawnCard = null; animations = []; 
+                          preTradeGameState = null; tradeTargetPlayerIndex = -1; playerTradeCardIndex = -1; cpuTradeCardIndex = -1; 
+                          draw(); 
+                          return; 
+                      }
+                      
+                      const isPlayerTurnForTrade = (gameState === 'PLAYERTURN' || gameState === 'DRAWN') && currentPlayerIndex === 0;
+                      if (isPlayerTurnForTrade && showOpponentCardsFaceUp && isPointInRect(x, y, tradeButtonRegion)) { 
+                          preTradeGameState = gameState; 
+                          gameState = 'TRADE_SELECT_PLAYER'; 
+                          message = "Select a CPU player to trade with.";
+                          tradeTargetPlayerIndex = -1; playerTradeCardIndex = -1; cpuTradeCardIndex = -1;
+                          draw();
+                          return;
+                      }
+                      
+                      if (currentPlayerIndex === 0 && gameState !== 'CPUTURN') {
+                           if (gameState === 'PLAYERTURN') {
+                               if (isPointInRect(x, y, deckRegion)) { handlePlayerDrawCard(); return; }
+                               if (isPointInRect(x, y, discardRegion)) { handlePlayerDrawFromDiscard(); return; }
+                           
+                           } else if (gameState === 'DRAWN') {
+                               for (const r of gridRegions) { // Use standard 10 grid regions
+                                   if (isPointInRect(x, y, r)) { 
+                                       handlePlayerSwapCard(r.index); 
+                                       return; 
+                                   } 
+                               }
+                               if (isPointInRect(x, y, discardRegion)) { 
+                                   if (drawSource === 'discard') { message = "You drew from the discard pile, you must swap it."; draw(); return; } 
+                                   const c = drawnCard; drawnCard = null; drawSource = null; 
+                                   animateDiscard(c, drawnCardRegion); 
+                                   return; 
+                               }
+                           
+                           // --- NEW +4 CLICK LOGIC ---
+                           } else if (gameState === 'PLUSFOUR') {
+                                // Check grid clicks
+                                for (const r of gridRegions) {
+                                    if (isPointInRect(x, y, r)) {
+                                        const i = r.index;
+                                        if (!players[0].grid[i]) return; // Clicked an empty slot
+                                        
+                                        if (!cardsToDiscardForPlusFour.includes(i)) {
+                                            if (cardsToDiscardForPlusFour.length < 4) {
+                                                cardsToDiscardForPlusFour.push(i);
+                                                message = `Selected ${cardsToDiscardForPlusFour.length}/4 cards.`;
+                                                if (cardsToDiscardForPlusFour.length === 4) {
+                                                    message = "Click the discard pile to confirm.";
+                                                }
+                                            }
+                                        } else {
+                                            cardsToDiscardForPlusFour = cardsToDiscardForPlusFour.filter(idx => idx !== i);
+                                            message = `Selected ${cardsToDiscardForPlusFour.length}/4 cards.`;
+                                        }
+                                        draw(); 
+                                        return; 
+                                    }
+                                }
+                                
+                                // Check discard pile click
+                                if (cardsToDiscardForPlusFour.length === 4 && isPointInRect(x, y, discardRegion)) {
+                                    message = "Discarding 4 cards...";
+                                    draw();
+                                    setTimeout(handleHumanPlusFourDiscard, 300); // Use new function
+                                    return;
+                                }
+                           }
+                      }
+                      break;
+                case 'TRADE_SELECT_PLAYER':
+                    for (const area of cpuGridAreas) { if (isPointInRect(x, y, area)) { tradeTargetPlayerIndex = area.playerIndex; gameState = 'TRADE_SELECT_CARDS'; message = "Select your card, then their card."; playerTradeCardIndex = -1; cpuTradeCardIndex = -1; draw(); return; } }
+                    if (isPointInRect(x, y, backToMenuButtonRegion)) { gameState = 'MAINMENU'; message = "Returned to Main Menu."; players = []; deck = []; discardPile = []; drawnCard = null; animations = []; preTradeGameState = null; tradeTargetPlayerIndex = -1; playerTradeCardIndex = -1; cpuTradeCardIndex = -1; draw(); return; }
+                    let clickedOnCpu = false;
+                    for (const area of cpuGridAreas) { if (isPointInRect(x, y, area)) { clickedOnCpu = true; break; } }
+                    // Also check back/trade buttons
+                    if (isPointInRect(x, y, backToMenuButtonRegion)) clickedOnCpu = true;
+                    if (isPointInRect(x, y, tradeButtonRegion)) clickedOnCpu = true;
+                    if (!clickedOnCpu) { handleCancelTrade(); return; }
+                    break;
+                case 'TRADE_SELECT_CARDS':
+                    if (isPointInRect(x, y, tradeModalRegions.cancelButton)) { handleCancelTrade(); return; }
+                    const canConfirm = playerTradeCardIndex !== -1 && cpuTradeCardIndex !== -1;
+                    if (canConfirm && isPointInRect(x, y, tradeModalRegions.confirmButton)) { handleConfirmTrade(); return; }
+                    for (const r of tradeModalRegions.playerGrid) { if (isPointInRect(x, y, r)) { if(players[0].grid[r.index]){ playerTradeCardIndex = r.index; message = playerTradeCardIndex !== -1 && cpuTradeCardIndex !== -1 ? "Offer trade or change selection." : "Now select their card."; draw(); return; } } }
+                    for (const r of tradeModalRegions.cpuGrid) { if (isPointInRect(x, y, r)) { if(players[tradeTargetPlayerIndex] && players[tradeTargetPlayerIndex].grid[r.index]){ cpuTradeCardIndex = r.index; message = playerTradeCardIndex !== -1 && cpuTradeCardIndex !== -1 ? "Offer trade or change selection." : "Now select your card."; draw(); return; } } }
+                    break;
+                case 'GAMEOVER':
+                    if (isPointInRect(x, y, restartButtonRegion)) { gameState = 'MAINMENU'; message = "Welcome back! Start a new game?"; return; }
+                    break;
+            }
+        }
+
+        // --- Trade Helper Functions ---
+        function handleCancelTrade() {
+             gameState = preTradeGameState || 'PLAYERTURN';
+             message = `Player ${players[currentPlayerIndex].id}: Your turn continues.`;
+             if(gameState === 'DRAWN') message = `Player ${players[currentPlayerIndex].id}: Click grid card to replace, or discard pile.`;
+             if(gameState === 'PLAYERTURN') message = `Player ${players[currentPlayerIndex].id}: Click deck or discard to draw.`;
+             tradeTargetPlayerIndex = -1; playerTradeCardIndex = -1; cpuTradeCardIndex = -1; preTradeGameState = null; draw();
+        }
+
+        function handleConfirmTrade() {
+            if (playerTradeCardIndex === -1 || cpuTradeCardIndex === -1 || tradeTargetPlayerIndex === -1) return;
+             const cpuAccepts = Math.random() < 0.5; gameState = 'TRADE_RESULT';
+             if (cpuAccepts) {
+                 tradeResultMessage = `Player ${players[tradeTargetPlayerIndex].id} Accepted!`;
+                 const playerCard = players[0].grid[playerTradeCardIndex];
+                 const cpuCard = players[tradeTargetPlayerIndex].grid[cpuTradeCardIndex];
+                 players[0].grid[playerTradeCardIndex] = cpuCard;
+                 players[tradeTargetPlayerIndex].grid[cpuTradeCardIndex] = playerCard;
+                 sortGrid(players[0].grid); sortGrid(players[tradeTargetPlayerIndex].grid);
+             } else { tradeResultMessage = `Player ${players[tradeTargetPlayerIndex].id} Rejected!`; }
+             draw();
+
+             // NEW: Check fast forward for result display time
+             const delay = fastForwardEnabled ? 100 : 2000;
+             setTimeout(() => {
+                 // Check if game ended while message was up
+                 if(gameState !== 'TRADE_RESULT') return;
+                 gameState = preTradeGameState || 'PLAYERTURN';
+                 message = `Player ${players[currentPlayerIndex].id}: Your turn continues.`;
+                 if(gameState === 'DRAWN') message = `Player ${players[currentPlayerIndex].id}: Click grid card to replace, or discard pile.`;
+                 if(gameState === 'PLAYERTURN') message = `Player ${players[currentPlayerIndex].id}: Click deck or discard to draw.`;
+                 tradeTargetPlayerIndex = -1; playerTradeCardIndex = -1; cpuTradeCardIndex = -1; preTradeGameState = null; tradeResultMessage = ""; 
+                 // Check for win *after* trade and state restoration
+                 if (checkWin()) return;
+                 draw();
+             }, delay);
+        }
+
+        function handleMouseMove(event) {
+            if (event.preventDefault) event.preventDefault();
+            const { x, y } = getEventCoords(event);
+            let newHoveredRegion = null; let newCursor = 'default'; const oldHoveredRegion = hoveredRegion;
+            const w = canvas.width;
+            const h = canvas.height;
+
+             if (isPointInRect(x, y, backToMenuButtonRegion)) { newHoveredRegion = backToMenuButtonRegion; newCursor = 'pointer'; }
+             const isPlayerTurnForTradeHover = (gameState === 'PLAYERTURN' || gameState === 'DRAWN') && currentPlayerIndex === 0;
+             // NEW: Check setting before allowing trade hover
+             if (isPlayerTurnForTradeHover && showOpponentCardsFaceUp && isPointInRect(x, y, tradeButtonRegion)) { 
+                 newHoveredRegion = tradeButtonRegion; 
+                 newCursor = 'pointer'; 
+             }
+            // NEW: Check Fast Forward Button
+             if (isPointInRect(x, y, fastForwardButtonRegion) && gameState !== 'MAINMENU' && gameState !== 'SETTINGS' && gameState !== 'GAMEOVER') {
+                 newHoveredRegion = fastForwardButtonRegion;
+                 newCursor = 'pointer';
+             }
+
+            if (gameState !== 'TRANSITION' && gameState !== 'INTERMISSION' && gameState !== 'TRADE_RESULT') {
+                 if (!newHoveredRegion) { newHoveredRegion = null; newCursor = 'default'; }
+                 switch (gameState) {
+                     case 'MAINMENU':
+                         if (isPointInRect(x, y, mainMenuButtons.start)) { newHoveredRegion = mainMenuButtons.start; newCursor = 'pointer'; }
+                         else if (isPointInRect(x, y, mainMenuButtons.settings)) { newHoveredRegion = mainMenuButtons.settings; newCursor = 'pointer'; }
+                         break;
+                     case 'SETTINGS':
+                         if (isPointInRect(x, y, settingsButtons.back)) newHoveredRegion = settingsButtons.back;
+                         else if (settingsButtons.opponentFaceUp.on && isPointInRect(x, y, settingsButtons.opponentFaceUp.on)) newHoveredRegion = settingsButtons.opponentFaceUp.on;
+                         else if (settingsButtons.opponentFaceUp.off && isPointInRect(x, y, settingsButtons.opponentFaceUp.off)) newHoveredRegion = settingsButtons.opponentFaceUp.off;
+                         else {
+                             const allSettingsButtons = [
+                                 ...settingsButtons.playerCounts,
+                                 ...settingsButtons.colorSwatches,
+                                 settingsButtons.textures.solid, settingsButtons.textures.felt, settingsButtons.textures.wood
+                             ];
+                             for(const b of allSettingsButtons) { if(isPointInRect(x, y, b)) { newHoveredRegion = b; break; }}
+                         }
+                         if (newHoveredRegion) newCursor = 'pointer';
+                         break;
+                    case 'PLAYERTURN': case 'DRAWN':
+                         if (currentPlayerIndex === 0) {
+                             if (gameState === 'PLAYERTURN' && (isPointInRect(x, y, deckRegion) || isPointInRect(x, y, discardRegion))) newCursor = 'pointer';
+                             else if (gameState === 'DRAWN') {
+                                 if (isPointInRect(x, y, discardRegion)) newCursor = 'pointer';
+                                 else for (const r of gridRegions) { if (isPointInRect(x, y, r)) { newCursor = 'pointer'; break; } }
+                             }
+                         }
+                         break;
+                    case 'PLUSFOUR':
+                        if (currentPlayerIndex === 0) {
+                            // Check discard pile
+                            if (cardsToDiscardForPlusFour.length === 4 && isPointInRect(x, y, discardRegion)) {
+                                newCursor = 'pointer';
+                            } else {
+                                // Check grid
+                                for (const r of gridRegions) {
+                                    if (isPointInRect(x, y, r) && players[0].grid[r.index]) {
+                                        newCursor = 'pointer';
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        break;
+                      case 'TRADE_SELECT_PLAYER':
+                          for (const a of cpuGridAreas) { if (isPointInRect(x, y, a)) { newHoveredRegion = a; newCursor = 'pointer'; break; } }
+                          break;
+                      case 'TRADE_SELECT_CARDS':
+                          if (isPointInRect(x, y, tradeModalRegions.cancelButton)) newHoveredRegion = tradeModalRegions.cancelButton;
+                          const canConfirmTrade = playerTradeCardIndex !== -1 && cpuTradeCardIndex !== -1;
+                          if (canConfirmTrade && isPointInRect(x, y, tradeModalRegions.confirmButton)) newHoveredRegion = tradeModalRegions.confirmButton;
+                          if (newHoveredRegion) newCursor = 'pointer';
+                          else {
+                              for (const r of tradeModalRegions.playerGrid) { if (isPointInRect(x, y, r) && players[0].grid[r.index]) { newCursor = 'pointer'; break; } }
+                              if (newCursor !== 'pointer' && players[tradeTargetPlayerIndex]) {
+                                  for (const r of tradeModalRegions.cpuGrid) { 
+                                      if (isPointInRect(x, y, r) && players[tradeTargetPlayerIndex].grid[r.index]) { 
+                                          newCursor = 'pointer'; 
+                                          break; 
+                                      } 
+                                  }
+                              }
+                          }
+                          break;
+                     case 'GAMEOVER':
+                         if (isPointInRect(x, y, restartButtonRegion)) { newHoveredRegion = restartButtonRegion; newCursor = 'pointer'; }
+                         break;
+                 }
+                 hoveredRegion = newHoveredRegion; canvas.style.cursor = newCursor;
+            } else { hoveredRegion = newHoveredRegion; canvas.style.cursor = newCursor; }
+
+            if (oldHoveredRegion !== newHoveredRegion) { draw(); }
+        }
+
+
+        // --- Initialization ---
+        window.addEventListener('resize', resizeCanvas);
+        canvas.addEventListener('click', handleClick);
+        canvas.addEventListener('mousemove', handleMouseMove);
+        // Handle touch events as clicks
+        canvas.addEventListener('touchend', handleClick, { passive: false });
+        // Clear hover on touchend to prevent "sticky" hover states
+        canvas.addEventListener('touchend', () => { setTimeout(() => { if (hoveredRegion) { hoveredRegion = null; canvas.style.cursor = 'default'; draw(); } else { hoveredRegion = null; canvas.style.cursor = 'default'; } }, 50); }, { passive: false });
+
+
+        window.onload = function() {
+            // --- NEW: Update the body background initially ---
+            updateBodyBackgroundColor();
+            resizeCanvas();
+            // Delay gameloop slightly to ensure layout is stable
+            setTimeout(() => {
+                gameLoop(0);
+            }, 100);
+        }
+
+    </script>
+</body>
+</html>

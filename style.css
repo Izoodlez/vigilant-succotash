@@ -89,3 +89,28 @@ nav ul li .dropdown-content li a:hover {
 nav ul li.dropdown:hover .dropdown-content {
     display: block;
 }
+/* Game card and image styles */
+.game-card {
+    display: inline-block;
+    text-align: center;
+    margin: 10px;
+}
+
+.game-image {
+    width: 150px;
+    height: 150px;
+    object-fit: cover;
+    display: block;
+    border-radius: 8px;
+    transition: transform 0.2s;
+}
+
+.game-image:hover {
+    transform: scale(1.05);
+}
+
+.game-title {
+    margin: 8px 0 0 0;
+    font-size: 14px;
+    color: white;
+}

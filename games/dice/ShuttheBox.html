@@ -1236,6 +1236,9 @@
                     tileEl.classList.add('shut');
                 });
                 selectedTiles = [];
+                // Update dynamic round score display after shutting tiles
+                const scoreIds = ['score-human','score-bot1','score-bot2'];
+                document.getElementById(scoreIds[currentTurnPlayer]).textContent = calculateScore();
                 
                 if (shutTiles.length === 9) {
                     finishTurn(0); // Perfect 0
@@ -1370,6 +1373,10 @@
                                 el.classList.remove('selected');
                                 el.classList.add('shut');
                             });
+
+                            // Update dynamic round score display for bot after shutting tiles
+                            const scoreIds = ['score-human','score-bot1','score-bot2'];
+                            document.getElementById(scoreIds[currentTurnPlayer]).textContent = calculateScore();
 
                             if (shutTiles.length === 9) {
                                 finishTurn(0);
@@ -1510,6 +1517,10 @@
                 if (winAmt > 0) {
                     pMsg.textContent = `+${winAmt} Credits`;
                     pMsg.style.color = "var(--accent-gold)";
+                } else if (winAmt === 0) {
+                    // Push / break-even: show neutral zero winnings instead of "Lost Stake"
+                    pMsg.textContent = "+0 Credits";
+                    pMsg.style.color = "var(--text-muted)";
                 } else {
                     pMsg.textContent = "Lost Stake";
                     pMsg.style.color = "var(--accent-red)";

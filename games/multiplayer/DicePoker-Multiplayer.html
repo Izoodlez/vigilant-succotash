@@ -15,7 +15,7 @@
             --text-muted: #aab7b8;
         }
 
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
 
         body {
             background: linear-gradient(135deg, var(--bg-dark) 0%, #2d1e1e 100%);
@@ -123,10 +123,6 @@
             background: rgba(255,189,46,0.1);
         }
 
-        .player-card.current-player {
-            border-color: var(--accent-blue);
-        }
-
         .player-avatar {
             width: 40px;
             height: 40px;
@@ -166,15 +162,6 @@
             50% { opacity: 0.5; }
         }
 
-        .ready-badge {
-            background: rgba(39,174,96,0.3);
-            color: #27ae60;
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-size: 0.75rem;
-            font-weight: bold;
-        }
-
         .dice-container {
             display: flex;
             gap: 20px;
@@ -195,10 +182,15 @@
             box-shadow: 0 4px 10px rgba(0,0,0,0.3);
             cursor: pointer;
             transition: all 0.2s;
+            position: relative;
         }
 
-        .die:hover { transform: translateY(-5px); }
-        .die.held { background: var(--accent-gold); }
+        .die:hover:not(.disabled) { transform: translateY(-5px); }
+        .die.held { 
+            background: var(--accent-gold); 
+            box-shadow: 0 0 20px rgba(255,189,46,0.5);
+        }
+        .die.disabled { cursor: not-allowed; opacity: 0.5; }
 
         .game-status {
             font-size: 1.3rem;
@@ -207,75 +199,292 @@
             text-align: center;
         }
 
-        #game-notification {
+        .game-info {
+            display: flex;
+            gap: 30px;
+            margin-top: 20px;
+            font-size: 1.1rem;
+        }
+
+        .info-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .info-label {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        .info-value {
+            color: var(--accent-gold);
+            font-size: 1.3rem;
+            font-weight: bold;
+        }
+
+        .hand-result {
+            margin-top: 20px;
+            padding: 15px 30px;
+            background: rgba(0,0,0,0.5);
+            border-radius: 8px;
+            font-size: 1.2rem;
+            color: var(--accent-gold);
+            text-align: center;
+            min-height: 50px;
+        }
+
+        #toast {
             position: fixed;
             top: 80px;
             right: 20px;
-            padding: 15px 25px;
             background: rgba(0,0,0,0.9);
-            border: 2px solid var(--accent-gold);
-            border-radius: 8px;
             color: white;
+            padding: 15px 25px;
+            border-radius: 8px;
+            border: 2px solid var(--accent-gold);
             font-size: 1rem;
             z-index: 1000;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        #toast.show { opacity: 1; }
+
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
             display: none;
-            animation: slideIn 0.3s ease;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
         }
 
-        @keyframes slideIn {
-            from { transform: translateX(400px); opacity: 0; }
-            to { transform: translateX(0); opacity: 1; }
+        .modal.active { display: flex; }
+
+        .modal-content {
+            background: #1a1a1a;
+            border: 3px solid var(--accent-gold);
+            border-radius: 15px;
+            padding: 30px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
         }
 
-        .waiting-screen {
+        .modal-header {
+            font-size: 2rem;
+            color: var(--accent-gold);
+            margin-bottom: 20px;
+            text-align: center;
+            font-weight: bold;
+        }
+
+        .score-row-item {
+            background: rgba(0,0,0,0.3);
+            border: 2px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 10px;
+        }
+
+        .score-row-item.winner {
+            border-color: var(--accent-gold);
+            background: rgba(255,189,46,0.1);
+        }
+
+        .winner-badge {
+            background: var(--accent-gold);
+            color: #000;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 0.9rem;
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 15px;
+            margin-top: 25px;
+            justify-content: center;
+        }
+
+        .lobby-code {
+            background: rgba(0,0,0,0.5);
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 1.2rem;
+            color: var(--accent-gold);
+        }
+
+        .betting-section {
+            background: rgba(0,0,0,0.5);
+            border: 2px solid var(--accent-gold);
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 20px;
             text-align: center;
         }
 
-        .waiting-screen h2 {
-            color: var(--accent-gold);
-            margin-bottom: 20px;
+        .betting-controls {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
         }
 
-        .hidden { display: none !important; }
+        .betting-controls button {
+            padding: 8px 12px;
+            background: var(--accent-blue);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .betting-controls button:hover {
+            background: #5dade2;
+            transform: translateY(-2px);
+        }
+
+        .bet-display {
+            display: flex;
+            gap: 30px;
+            justify-content: center;
+            margin-bottom: 10px;
+            font-size: 1.1rem;
+        }
+
+        .bet-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .bet-label {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            margin-bottom: 5px;
+        }
+
+        .bet-value {
+            color: var(--accent-gold);
+            font-weight: bold;
+            font-size: 1.3rem;
+        }
+
+        .pot-display {
+            background: rgba(255,189,46,0.2);
+            border: 2px solid var(--accent-gold);
+            border-radius: 10px;
+            padding: 15px;
+            margin: 20px 0;
+            text-align: center;
+        }
+
+        .pot-value {
+            font-size: 2rem;
+            color: var(--accent-gold);
+            font-weight: bold;
+        }
+
+        .player-card.folded {
+            opacity: 0.5;
+            border-color: var(--accent-red);
+        }
+
+        .player-chips {
+            font-size: 0.75rem;
+            color: var(--accent-gold);
+        }
+
+        .btn-success { background: var(--accent-green); color: #fff; }
     </style>
 </head>
 <body>
     <header>
         <div class="brand">🎲 Dice Poker - Multiplayer</div>
         <div class="header-right">
+            <div class="lobby-code">Lobby: <span id="lobby-code-display">...</span></div>
             <button class="btn btn-danger" onclick="returnToLobby()">Leave Game</button>
         </div>
     </header>
 
     <main>
         <div class="game-area">
-            <div id="waiting-screen" class="waiting-screen">
-                <h2>Waiting for Players...</h2>
-                <p id="waiting-message">Get ready!</p>
-                <button id="ready-btn" class="btn btn-primary" onclick="onReadyClick()">
-                    I'm Ready
+            <div class="game-status" id="game-status">Waiting for game to start...</div>
+            
+            <!-- Pot Display -->
+            <div id="pot-display" class="pot-display" style="display: none;">
+                <div class="bet-label">POT</div>
+                <div class="pot-value" id="pot-value">0</div>
+            </div>
+
+            <!-- Betting Section -->
+            <div id="betting-section" class="betting-section" style="display: none;">
+                <div class="bet-display">
+                    <div class="bet-item">
+                        <div class="bet-label">Your Chips</div>
+                        <div class="bet-value" id="player-chips">1000</div>
+                    </div>
+                    <div class="bet-item">
+                        <div class="bet-label">Current Bet</div>
+                        <div class="bet-value" id="bet-display">50</div>
+                    </div>
+                </div>
+                <div class="betting-controls">
+                    <button onclick="adjustBet(10)">+10</button>
+                    <button onclick="adjustBet(50)">+50</button>
+                    <button onclick="adjustBet(100)">+100</button>
+                    <button onclick="adjustBet(-10)">-10</button>
+                    <button onclick="adjustBet(-50)">-50</button>
+                    <button onclick="resetBet()">Reset</button>
+                </div>
+                <div style="display: flex; gap: 10px; justify-content: center;">
+                    <button id="place-bet-btn" class="btn btn-primary" onclick="placeBet()" style="width: 150px;">
+                        💰 Call
+                    </button>
+                    <button id="all-in-btn" class="btn btn-success" onclick="goAllIn()" style="width: 150px;">
+                        🔥 All In!
+                    </button>
+                    <button id="fold-btn" class="btn btn-danger" onclick="fold()" style="width: 150px;">
+                        ❌ Fold
+                    </button>
+                </div>
+            </div>
+            
+            <div class="dice-container" id="dice-container">
+                <!-- Dice will be generated here -->
+            </div>
+
+            <div class="hand-result" id="hand-result">Place your bet to start!</div>
+
+            <div style="display: flex; gap: 15px; margin-top: 30px;">
+                <button id="roll-btn" class="btn btn-primary" onclick="rollDice()" disabled>
+                    🎲 Roll Dice
+                </button>
+                <button id="end-turn-btn" class="btn btn-secondary" onclick="endTurn()" disabled>
+                    ✓ End Turn
                 </button>
             </div>
 
-            <div id="game-screen" class="hidden">
-                <div class="game-status" id="game-status">Your turn!</div>
-                
-                <div class="dice-container" id="dice-container">
-                    <!-- Dice will be generated here -->
+            <div class="game-info">
+                <div class="info-item">
+                    <div class="info-label">Rolls Left</div>
+                    <div class="info-value" id="rolls-left">2</div>
                 </div>
-
-                <div style="display: flex; gap: 15px; margin-top: 30px;">
-                    <button id="roll-btn" class="btn btn-primary" onclick="rollDice()">
-                        Roll Dice
-                    </button>
-                    <button id="end-turn-btn" class="btn btn-secondary" onclick="endTurn()" disabled>
-                        End Turn
-                    </button>
-                </div>
-
-                <div style="margin-top: 20px; color: var(--text-muted);">
-                    <p>Rolls left: <span id="rolls-left">3</span></p>
-                    <p>Current Score: <span id="current-score">0</span></p>
+                <div class="info-item">
+                    <div class="info-label">Current Score</div>
+                    <div class="info-value" id="current-score">0</div>
                 </div>
             </div>
         </div>
@@ -289,15 +498,40 @@
             </div>
 
             <div class="section">
-                <h3>Game Info</h3>
-                <p style="color: var(--text-muted); font-size: 0.9rem;">
-                    Roll dice to make poker hands!<br><br>
-                    Click dice to hold them.<br>
-                    You get 3 rolls per turn.
+                <h3>Game Rules</h3>
+                <p style="color: var(--text-muted); font-size: 0.9rem; line-height: 1.5;">
+                    <strong>Poker Hands (High to Low):</strong><br>
+                    Five of a Kind: 10000pts<br>
+                    Four of a Kind: 5000pts<br>
+                    Full House: 2500pts<br>
+                    Straight: 2000pts<br>
+                    Three of a Kind: 1000pts<br>
+                    Two Pair: 500pts<br>
+                    One Pair: 100pts<br><br>
+                    <strong>How to Play:</strong><br>
+                    1. First player sets the bet<br>
+                    2. Other players call, go all-in, or fold<br>
+                    3. Each player rolls twice (hold dice)<br>
+                    4. Highest hand wins the pot!
                 </p>
             </div>
         </div>
     </main>
+
+    <!-- Scoreboard Modal -->
+    <div id="scoreboardModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">🏆 Game Over!</div>
+            <div id="scoreboardResults"></div>
+            <div class="modal-actions">
+                <button class="btn btn-primary" onclick="playAgain()">Play Again</button>
+                <button class="btn btn-secondary" onclick="returnToLobbyFromScoreboard()">Return to Lobby</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast"></div>
 
     <!-- Firebase SDKs -->
     <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
@@ -307,169 +541,534 @@
     <!-- Firebase Config -->
     <script src="../../js/firebaseConfig.js"></script>
 
-    <!-- Multiplayer Game Utilities -->
-    <script src="../../js/multiplayerGame.js"></script>
-
     <script>
-        // Game state
-        const mpGame = new MultiplayerGame('DicePoker');
-        let isSinglePlayer = false;
-        let dice = [0, 0, 0, 0, 0];
+        // ==============================
+        // FIREBASE & LOBBY STATE
+        // ==============================
+        // Note: db, auth, playerUUID are already declared in firebaseConfig.js
+        let lobbyId = null;
+        let lobbyRef = null;
+        let lobbyPlayers = {};
+        let currentMatchState = null;
+        let scoreboardShown = false;
+        let gameStarted = false;
+        let hasFolded = false;
+        
+        // ==============================
+        // BETTING & CHIPS
+        // ==============================
+        const STARTING_CHIPS = 1000;
+        let playerChips = {};
+        let currentBet = 50;
+        let currentPot = 0;
+        let firstPlayerBet = 50;
+
+        // ==============================
+        // GAME STATE
+        // ==============================
+        let dice = [1, 2, 3, 4, 5];
         let heldDice = [false, false, false, false, false];
-        let rollsLeft = 3;
+        let rollsLeft = 2;
         let currentScore = 0;
 
-        // Initialize game
+        // ==============================
+        // INITIALIZATION
+        // ==============================
         window.addEventListener('load', async () => {
-            // Initialize Firebase
-            if (typeof initializeFirebase === 'function') {
-                initializeFirebase();
-            }
-
-            // Initialize multiplayer
-            const mpInitialized = await mpGame.initialize();
-            isSinglePlayer = !mpInitialized;
-
-            if (mpInitialized) {
-                setupMultiplayerCallbacks();
-                console.log('Multiplayer mode active');
-            } else {
-                console.log('Single player mode - starting immediately');
-                startGame();
-            }
-
-            // Render initial dice
+            initializeFirebase();
+            await initializeAuth();
+            const hasLobby = await joinLobbyFromURL();
+            if (!hasLobby) return; // Stop initialization if no lobby found
+            setupRealtimeSync();
             renderDice();
         });
 
-        // Set up multiplayer event callbacks
-        function setupMultiplayerCallbacks() {
-            mpGame.on('onPlayersUpdate', (players) => {
-                console.log('Players updated:', players);
-                mpGame.renderPlayerList('player-list-container');
-                updateWaitingMessage();
-            });
+        function initializeFirebase() {
+            if (typeof firebase === 'undefined') {
+                console.error('Firebase not loaded!');
+                return;
+            }
+            db = firebase.database();
+            auth = firebase.auth();
+            console.log('Firebase initialized');
+        }
 
-            mpGame.on('onGameStateUpdate', (state) => {
-                console.log('Game state updated:', state);
-                
-                if (state.status === 'playing') {
-                    document.getElementById('waiting-screen').classList.add('hidden');
-                    document.getElementById('game-screen').classList.remove('hidden');
-                }
-
-                // Sync game state from other players
-                if (state.lastMove && state.lastMove.playerId !== mpGame.playerUUID) {
-                    handleRemoteMove(state.lastMove);
-                }
-            });
-
-            mpGame.on('onTurnChange', (currentPlayerId, isMyTurn) => {
-                console.log('Turn changed:', currentPlayerId, isMyTurn);
-                mpGame.showTurnNotification();
-                
-                if (isMyTurn) {
-                    enablePlayerControls();
-                    resetTurn();
-                } else {
-                    disablePlayerControls();
-                }
-            });
-
-            mpGame.on('onGameEnd', (winnerId, finalScores) => {
-                console.log('Game ended. Winner:', winnerId);
-                showGameOver(winnerId, finalScores);
+        async function initializeAuth() {
+            return new Promise((resolve) => {
+                auth.onAuthStateChanged(async (user) => {
+                    if (!user) {
+                        try {
+                            await auth.signInAnonymously();
+                        } catch (error) {
+                            console.error('Auth failed:', error);
+                        }
+                    }
+                    resolve();
+                });
             });
         }
 
-        // Update waiting message
-        function updateWaitingMessage() {
-            const playerCount = Object.keys(mpGame.players).length;
-            const readyCount = Object.values(mpGame.gameState.playerStates || {}).filter(p => p.ready).length;
+        async function joinLobbyFromURL() {
+            const params = new URLSearchParams(window.location.search);
+            lobbyId = params.get('lobbyId');
             
-            document.getElementById('waiting-message').textContent = 
-                `${readyCount}/${playerCount} players ready`;
+            if (!lobbyId) {
+                console.warn('No lobby ID found in URL. Redirecting to lobby page...');
+                window.location.href = '../../lobby.html';
+                return false;
+            }
+
+            try {
+                // Join the lobby using the helper function (adds us to players list)
+                console.log('Joining lobby via URL:', lobbyId);
+                await joinLobby(lobbyId);
+                
+                // Store locally for later use
+                window.currentLobbyId = lobbyId;
+                sessionStorage.setItem('currentLobbyId', lobbyId);
+                document.getElementById('lobby-code-display').textContent = lobbyId;
+                
+                // Reset chips if player is broke
+                const playerRef = db.ref(`lobbies/${lobbyId}/players/${playerUUID}`);
+                const snapshot = await playerRef.once('value');
+                const playerData = snapshot.val();
+                
+                if (playerData && (playerData.chips === undefined || playerData.chips <= 0)) {
+                    await playerRef.update({ chips: STARTING_CHIPS });
+                }
+                
+                console.log('Successfully joined lobby, playerUUID:', playerUUID);
+                return true;
+            } catch (error) {
+                console.error('Error joining lobby from URL:', error);
+                showToast('Error joining lobby: ' + error.message);
+                setTimeout(() => {
+                    window.location.href = '../../lobby.html';
+                }, 2000);
+                return false;
+            }
         }
 
-        // Ready button click
-        async function onReadyClick() {
-            if (isSinglePlayer) {
-                startGame();
+        function setupRealtimeSync() {
+            if (!lobbyId) return;
+
+            // CRITICAL FIX: Assign the returned reference to lobbyRef
+            lobbyRef = onLobbyUpdate((data) => {
+                if (!data) return;
+
+                lobbyPlayers = data.players || {};
+                currentMatchState = data.matchState || {};
+                
+                // Update player chips from Firebase
+                Object.entries(lobbyPlayers).forEach(([pid, player]) => {
+                    playerChips[pid] = player.chips !== undefined ? player.chips : STARTING_CHIPS;
+                });
+                
+                syncFromFirebase(currentMatchState);
+                updatePlayerList();
+                updateGameStatus();
+                updatePotDisplay();
+                
+                // Auto-start game
+                if (!gameStarted && (!currentMatchState.status || currentMatchState.status === 'waiting')) {
+                    const realPlayers = Object.values(lobbyPlayers).filter(p => !p.isBot);
+                    if (realPlayers.length > 0) {
+                        startGameRound();
+                    }
+                }
+                
+                // Handle turn logic
+                if (currentMatchState.status === 'betting' || currentMatchState.status === 'playing') {
+                    handleTurnLogic();
+                }
+            }, lobbyId);
+            
+            window.globalLobbyRef = lobbyRef;
+        }
+
+        function handleTurnLogic() {
+            const isMyTurn = currentMatchState.currentTurn === playerUUID;
+            const currentPlayer = lobbyPlayers[currentMatchState.currentTurn];
+            
+            if (currentMatchState.status === 'betting') {
+                // Betting phase
+                if (isMyTurn && !hasFolded) {
+                    enableBettingControls();
+                    showToast("Your turn to bet!");
+                } else {
+                    disableBettingControls();
+                }
+                
+                // Bot betting
+                if (isHostClient() && currentPlayer && currentPlayer.isBot) {
+                    setTimeout(() => runBotBet(currentMatchState.currentTurn), 2000);
+                }
+            } else if (currentMatchState.status === 'playing') {
+                // Rolling phase
+                if (isMyTurn && !hasFolded) {
+                    enableRollingControls();
+                    showToast("Your turn to roll!");
+                } else {
+                    disableControls();
+                }
+                
+                // Bot rolling
+                if (isHostClient() && currentPlayer && currentPlayer.isBot) {
+                    setTimeout(() => runBotRoll(currentMatchState.currentTurn), 2000);
+                }
+            }
+        }
+
+        function syncFromFirebase(matchState) {
+            if (!matchState) return;
+            
+            if (matchState.pot !== undefined) {
+                currentPot = matchState.pot;
+            }
+            
+            if (matchState.currentBet !== undefined) {
+                firstPlayerBet = matchState.currentBet;
+                currentBet = firstPlayerBet;
+                updateBetDisplay();
+            }
+            
+            if (matchState.gameOver && !scoreboardShown) {
+                const rankings = matchState.rankings || [];
+                const winner = matchState.winner;
+                showScoreboard(rankings, winner);
+            }
+        }
+
+        function updatePlayerList() {
+            const container = document.getElementById('player-list-container');
+            if (!container) return;
+            
+            container.innerHTML = '';
+
+            if (Object.keys(lobbyPlayers).length === 0) {
+                container.innerHTML = '<p style="color: var(--text-muted);">No players yet...</p>';
                 return;
             }
 
-            await mpGame.setReady(true);
-            document.getElementById('ready-btn').disabled = true;
-            document.getElementById('ready-btn').textContent = '✓ Ready!';
-
-            updateWaitingMessage();
-
-            if (mpGame.allPlayersReady()) {
-                await mpGame.startGame();
-                startGame();
-            }
+            Object.entries(lobbyPlayers).forEach(([playerId, player]) => {
+                const isCurrentTurn = currentMatchState && currentMatchState.currentTurn === playerId;
+                const playerFolded = currentMatchState && currentMatchState.foldedPlayers && 
+                                   currentMatchState.foldedPlayers[playerId];
+                const card = document.createElement('div');
+                card.className = `player-card ${isCurrentTurn ? 'active-turn' : ''} ${playerFolded ? 'folded' : ''}`;
+                
+                const avatar = player.isBot ? '🤖' : '👤';
+                const turnIndicator = isCurrentTurn ? '<span class="turn-indicator">◀</span>' : '';
+                const foldedText = playerFolded ? ' (FOLDED)' : '';
+                const chips = player.chips !== undefined ? player.chips : STARTING_CHIPS;
+                
+                card.innerHTML = `
+                    <div class="player-avatar ${player.isBot ? 'bot' : ''}">${avatar}</div>
+                    <div class="player-info">
+                        <div class="player-name">${player.name || 'Unknown'}${foldedText}</div>
+                        <div class="player-score">Score: ${player.score || 0}</div>
+                        <div class="player-chips">Chips: ${chips}</div>
+                    </div>
+                    ${turnIndicator}
+                `;
+                
+                container.appendChild(card);
+            });
         }
 
-        // Start the game
-        function startGame() {
-            document.getElementById('waiting-screen').classList.add('hidden');
-            document.getElementById('game-screen').classList.remove('hidden');
+        function updateGameStatus() {
+            const statusEl = document.getElementById('game-status');
             
-            if (!isSinglePlayer) {
-                mpGame.showTurnNotification();
-                if (!mpGame.isMyTurn) {
-                    disablePlayerControls();
+            if (!currentMatchState || !currentMatchState.status || currentMatchState.status === 'waiting') {
+                const playerCount = Object.keys(lobbyPlayers).length;
+                statusEl.textContent = playerCount > 0 ? `⏳ Starting game... (${playerCount} players)` : 'Waiting for players...';
+            } else if (currentMatchState.status === 'betting') {
+                const isMyTurn = currentMatchState.currentTurn === playerUUID;
+                if (isMyTurn && !hasFolded) {
+                    statusEl.textContent = "💰 Your Turn - Place Your Bet!";
+                } else {
+                    const currentPlayer = lobbyPlayers[currentMatchState.currentTurn];
+                    const playerName = currentPlayer ? currentPlayer.name : 'Player';
+                    statusEl.textContent = `⏳ Waiting for ${playerName} to bet...`;
+                }
+            } else if (currentMatchState.status === 'playing') {
+                const isMyTurn = currentMatchState.currentTurn === playerUUID;
+                if (isMyTurn && !hasFolded) {
+                    statusEl.textContent = "🎲 Your Turn - Roll the Dice!";
+                } else {
+                    const currentPlayer = lobbyPlayers[currentMatchState.currentTurn];
+                    const playerName = currentPlayer ? currentPlayer.name : 'Player';
+                    statusEl.textContent = `⏳ Waiting for ${playerName} to roll...`;
                 }
             }
         }
 
-        // Render dice
+        function updatePotDisplay() {
+            const potDisplay = document.getElementById('pot-display');
+            const potValue = document.getElementById('pot-value');
+            
+            if (currentPot > 0) {
+                potDisplay.style.display = 'block';
+                potValue.textContent = currentPot;
+            } else {
+                potDisplay.style.display = 'none';
+            }
+        }
+
+        // ==============================
+        // GAME INITIALIZATION & FLOW
+        // ==============================
+        async function startGameRound() {
+            if (gameStarted) return;
+            if (!lobbyId || !db) return;
+            
+            gameStarted = true;
+            hasFolded = false;
+            
+            // Initialize player chips
+            Object.keys(lobbyPlayers).forEach(playerId => {
+                if (playerChips[playerId] === undefined) {
+                    playerChips[playerId] = STARTING_CHIPS;
+                }
+            });
+            
+            // Update all player chips in Firebase
+            const updates = {};
+            Object.entries(playerChips).forEach(([pid, chips]) => {
+                updates[`players/${pid}/chips`] = chips;
+                updates[`players/${pid}/score`] = 0;
+            });
+            
+            const turnOrder = Object.keys(lobbyPlayers);
+            updates['matchState'] = {
+                status: 'betting',
+                round: (currentMatchState.round || 0) + 1,
+                turnOrder: turnOrder,
+                currentTurn: turnOrder[0],
+                pot: 0,
+                currentBet: 50,
+                foldedPlayers: {},
+                completedBetting: {},
+                completedRolling: {},
+                gameOver: false,
+                winner: null,
+                rankings: null
+            };
+            
+            await db.ref(`lobbies/${lobbyId}`).update(updates);
+        }
+
+        // ==============================
+        // BETTING LOGIC
+        // ==============================
+        function adjustBet(amount) {
+            const myChips = playerChips[playerUUID] || STARTING_CHIPS;
+            const newBet = currentBet + amount;
+            
+            if (newBet > 0 && newBet <= myChips) {
+                currentBet = newBet;
+                updateBetDisplay();
+            }
+        }
+
+        function resetBet() {
+            currentBet = 50;
+            updateBetDisplay();
+        }
+
+        function updateBetDisplay() {
+            document.getElementById('bet-display').textContent = currentBet;
+            document.getElementById('player-chips').textContent = playerChips[playerUUID] || STARTING_CHIPS;
+        }
+
+        function enableBettingControls() {
+            const bettingSection = document.getElementById('betting-section');
+            if (bettingSection) {
+                bettingSection.style.display = 'block';
+            }
+            updateBetDisplay();
+        }
+
+        function disableBettingControls() {
+            const bettingSection = document.getElementById('betting-section');
+            if (bettingSection) {
+                bettingSection.style.display = 'none';
+            }
+        }
+
+        async function placeBet() {
+            const myChips = playerChips[playerUUID] || STARTING_CHIPS;
+            const betAmount = Math.min(currentBet, myChips);
+            
+            if (betAmount <= 0) {
+                showToast('Invalid bet amount!');
+                return;
+            }
+            
+            playerChips[playerUUID] = myChips - betAmount;
+            currentPot += betAmount;
+            
+            const updates = {
+                [`players/${playerUUID}/chips`]: playerChips[playerUUID],
+                'matchState/pot': currentPot,
+                [`matchState/completedBetting/${playerUUID}`]: true,
+                [`matchState/playerBets/${playerUUID}`]: betAmount
+            };
+            
+            // If this is the first player, set the bet for everyone
+            const isFirstPlayer = Object.keys(currentMatchState.completedBetting || {}).length === 0;
+            if (isFirstPlayer) {
+                updates['matchState/currentBet'] = betAmount;
+                firstPlayerBet = betAmount;
+            }
+            
+            await db.ref(`lobbies/${lobbyId}`).update(updates);
+            
+            disableBettingControls();
+            showToast(`Bet placed: ${betAmount} chips!`);
+            
+            checkBettingPhaseComplete();
+        }
+
+        async function goAllIn() {
+            const myChips = playerChips[playerUUID] || STARTING_CHIPS;
+            
+            if (myChips <= 0) {
+                showToast('No chips to go all in!');
+                return;
+            }
+            
+            currentPot += myChips;
+            playerChips[playerUUID] = 0;
+            
+            const updates = {
+                [`players/${playerUUID}/chips`]: 0,
+                'matchState/pot': currentPot,
+                [`matchState/completedBetting/${playerUUID}`]: true,
+                [`matchState/playerBets/${playerUUID}`]: myChips
+            };
+            
+            await db.ref(`lobbies/${lobbyId}`).update(updates);
+            
+            disableBettingControls();
+            showToast(`All in with ${myChips} chips!`);
+            
+            checkBettingPhaseComplete();
+        }
+
+        async function fold() {
+            hasFolded = true;
+            
+            const updates = {
+                [`matchState/foldedPlayers/${playerUUID}`]: true,
+                [`matchState/completedBetting/${playerUUID}`]: true,
+                [`matchState/completedRolling/${playerUUID}`]: true
+            };
+            
+            await db.ref(`lobbies/${lobbyId}`).update(updates);
+            
+            disableBettingControls();
+            disableControls();
+            showToast('You folded!');
+            
+            checkBettingPhaseComplete();
+        }
+
+        async function checkBettingPhaseComplete() {
+            if (!isHostClient()) return;
+            
+            // Wait a bit for Firebase to update
+            setTimeout(async () => {
+                const snapshot = await db.ref(`lobbies/${lobbyId}/matchState`).once('value');
+                const state = snapshot.val();
+                
+                const turnOrder = state.turnOrder || [];
+                const completedBetting = state.completedBetting || {};
+                const allDone = turnOrder.every(pid => completedBetting[pid]);
+                
+                if (allDone) {
+                    // Move to rolling phase
+                    const activePlayers = turnOrder.filter(pid => !state.foldedPlayers || !state.foldedPlayers[pid]);
+                    
+                    if (activePlayers.length === 1) {
+                        // Only one player left, they win
+                        await handleSingleWinner(activePlayers[0]);
+                    } else {
+                        // Start rolling phase
+                        await db.ref(`lobbies/${lobbyId}/matchState`).update({
+                            status: 'playing',
+                            currentTurn: activePlayers[0]
+                        });
+                    }
+                }
+            }, 500);
+        }
+
+        async function handleSingleWinner(winnerId) {
+            // Award pot to winner
+            const winnerChips = playerChips[winnerId] + currentPot;
+            
+            await db.ref(`lobbies/${lobbyId}/players/${winnerId}/chips`).set(winnerChips);
+            await db.ref(`lobbies/${lobbyId}/players/${winnerId}/score`).set(0);
+            
+            const rankings = [{
+                playerId: winnerId,
+                playerName: lobbyPlayers[winnerId].name,
+                score: 0,
+                winnings: currentPot,
+                rank: 1,
+                isWinner: true
+            }];
+            
+            await updateMatchState({
+                gameOver: true,
+                winner: winnerId,
+                rankings: rankings
+            });
+        }
+
+        // ==============================
+        // ROLLING LOGIC
+        // ==============================
+        function enableRollingControls() {
+            resetTurn();
+            document.getElementById('roll-btn').disabled = false;
+            document.getElementById('end-turn-btn').disabled = true;
+        }
+
         function renderDice() {
             const container = document.getElementById('dice-container');
             container.innerHTML = '';
 
             dice.forEach((value, index) => {
                 const dieEl = document.createElement('div');
-                dieEl.className = `die ${heldDice[index] ? 'held' : ''}`;
+                const isDisabled = rollsLeft === 3 && value === 0;
+                dieEl.className = `die ${heldDice[index] ? 'held' : ''} ${isDisabled ? 'disabled' : ''}`;
                 dieEl.textContent = value || '?';
                 dieEl.onclick = () => toggleHold(index);
                 container.appendChild(dieEl);
             });
         }
 
-        // Toggle hold on a die
         function toggleHold(index) {
-            if (rollsLeft === 3 || dice[index] === 0) return; // Can't hold before first roll
+            if (rollsLeft === 2 || dice[index] === 0) return;
+            if (currentMatchState.currentTurn !== playerUUID || hasFolded) return;
+            
             heldDice[index] = !heldDice[index];
             renderDice();
         }
 
-        // Roll dice
         async function rollDice() {
             if (rollsLeft === 0) return;
-            if (!isSinglePlayer && !mpGame.isMyTurn) {
-                alert("It's not your turn!");
-                return;
-            }
+            if (currentMatchState.currentTurn !== playerUUID || hasFolded) return;
 
             rollsLeft--;
             document.getElementById('rolls-left').textContent = rollsLeft;
 
-            // Roll non-held dice
             dice = dice.map((val, i) => heldDice[i] ? val : Math.floor(Math.random() * 6) + 1);
             
             renderDice();
-            calculateScore();
-
-            // Broadcast move if multiplayer
-            if (!isSinglePlayer) {
-                await mpGame.broadcastMove({
-                    action: 'roll',
-                    dice: dice,
-                    held: heldDice,
-                    rollsLeft: rollsLeft
-                });
-            }
+            evaluateHand();
 
             if (rollsLeft === 0) {
                 document.getElementById('roll-btn').disabled = true;
@@ -477,118 +1076,402 @@
             }
         }
 
-        // Calculate score from current dice
-        function calculateScore() {
-            // Simple scoring: sum of all dice
-            // You can implement poker hand scoring here
-            currentScore = dice.reduce((a, b) => a + b, 0);
-            document.getElementById('current-score').textContent = currentScore;
-        }
-
-        // End turn
-        async function endTurn() {
-            // Update final score
-            if (!isSinglePlayer) {
-                await mpGame.updateScore(currentScore);
-                await mpGame.endTurn();
-            }
-
-            disablePlayerControls();
+        function evaluateHand() {
+            // Count occurrences of each die value
+            const counts = {};
+            dice.forEach(d => {
+                counts[d] = (counts[d] || 0) + 1;
+            });
             
-            // Check for game end (example: after 3 rounds)
-            if (mpGame.gameState.round >= 3) {
-                const winnerId = findWinner();
-                await mpGame.endGame(winnerId, collectScores());
+            const values = Object.values(counts).sort((a, b) => b - a);
+            const uniqueValues = Object.keys(counts).map(Number).sort((a, b) => a - b);
+            
+            let handName = '';
+            let score = 0;
+            
+            // Check for hands (highest to lowest)
+            if (values[0] === 5) {
+                handName = '🌟 FIVE OF A KIND!';
+                score = 10000;
+            } else if (values[0] === 4) {
+                handName = '💎 FOUR OF A KIND!';
+                score = 5000;
+            } else if (values[0] === 3 && values[1] === 2) {
+                handName = '🏠 FULL HOUSE!';
+                score = 2500;
+            } else if (uniqueValues.length === 5 && 
+                       (uniqueValues.join('') === '12345' || uniqueValues.join('') === '23456')) {
+                handName = '📊 STRAIGHT!';
+                score = 2000;
+            } else if (values[0] === 3) {
+                handName = '🎯 THREE OF A KIND';
+                score = 1000;
+            } else if (values[0] === 2 && values[1] === 2) {
+                handName = '👥 TWO PAIR';
+                score = 500;
+            } else if (values[0] === 2) {
+                handName = '🎲 ONE PAIR';
+                score = 100;
+            } else {
+                handName = 'High Card';
+                score = Math.max(...dice) * 10;
             }
+            
+            currentScore = score;
+            document.getElementById('current-score').textContent = score;
+            document.getElementById('hand-result').textContent = handName;
         }
 
-        // Reset turn
+        // ==============================
+        // TURN MANAGEMENT
+        // ==============================
+        async function endTurn() {
+            if (currentMatchState.currentTurn !== playerUUID || hasFolded) return;
+
+            await db.ref(`lobbies/${lobbyId}/players/${playerUUID}/score`).set(currentScore);
+            await db.ref(`lobbies/${lobbyId}/matchState/completedRolling/${playerUUID}`).set(true);
+            
+            disableControls();
+            showToast('Turn ended!');
+            
+            checkRollingPhaseComplete();
+        }
+
+        async function checkRollingPhaseComplete() {
+            if (!isHostClient()) return;
+            
+            setTimeout(async () => {
+                const snapshot = await db.ref(`lobbies/${lobbyId}/matchState`).once('value');
+                const state = snapshot.val();
+                
+                const turnOrder = state.turnOrder || [];
+                const completedRolling = state.completedRolling || {};
+                const foldedPlayers = state.foldedPlayers || {};
+                
+                const activePlayers = turnOrder.filter(pid => !foldedPlayers[pid]);
+                const allDone = activePlayers.every(pid => completedRolling[pid]);
+                
+                if (allDone) {
+                    finishGame();
+                } else {
+                    // Move to next active player
+                    const currentIndex = turnOrder.indexOf(state.currentTurn);
+                    let nextIndex = (currentIndex + 1) % turnOrder.length;
+                    
+                    while (foldedPlayers[turnOrder[nextIndex]]) {
+                        nextIndex = (nextIndex + 1) % turnOrder.length;
+                    }
+                    
+                    await db.ref(`lobbies/${lobbyId}/matchState/currentTurn`).set(turnOrder[nextIndex]);
+                }
+            }, 500);
+        }
+
         function resetTurn() {
-            rollsLeft = 3;
+            rollsLeft = 2;
             dice = [0, 0, 0, 0, 0];
             heldDice = [false, false, false, false, false];
             currentScore = 0;
             
             document.getElementById('rolls-left').textContent = rollsLeft;
             document.getElementById('current-score').textContent = currentScore;
-            document.getElementById('roll-btn').disabled = false;
-            document.getElementById('end-turn-btn').disabled = true;
+            document.getElementById('hand-result').textContent = 'Roll to see your hand!';
             
             renderDice();
         }
 
-        // Enable/disable controls
-        function enablePlayerControls() {
+        function enableControls() {
             document.getElementById('roll-btn').disabled = false;
-            document.getElementById('game-status').textContent = 'Your turn!';
+            document.getElementById('end-turn-btn').disabled = true;
         }
 
-        function disablePlayerControls() {
+        function disableControls() {
             document.getElementById('roll-btn').disabled = true;
             document.getElementById('end-turn-btn').disabled = true;
-            const currentPlayer = mpGame.getPlayer(mpGame.currentTurn);
-            const playerName = currentPlayer ? currentPlayer.name : 'Other player';
-            document.getElementById('game-status').textContent = `${playerName}'s turn`;
         }
 
-        // Handle moves from other players
-        function handleRemoteMove(move) {
-            console.log('Remote move:', move);
-            // Update UI to show what other player did
-            mpGame.showNotification(`${mpGame.getPlayer(move.playerId)?.name} rolled!`, 'info');
+
+
+        function isHostClient() {
+            // First real (non-bot) player is the host
+            const realPlayers = Object.entries(lobbyPlayers)
+                .filter(([id, player]) => !player.isBot)
+                .sort((a, b) => (a[1].joinedAt || 0) - (b[1].joinedAt || 0));
+            
+            return realPlayers.length > 0 && realPlayers[0][0] === playerUUID;
         }
 
-        // Find winner
-        function findWinner() {
-            let maxScore = 0;
-            let winnerId = null;
+        async function updateMatchState(updates) {
+            if (!lobbyId || !db) return;
+            await db.ref(`lobbies/${lobbyId}/matchState`).update(updates);
+        }
 
-            Object.entries(mpGame.gameState.playerStates).forEach(([playerId, state]) => {
-                if (state.score > maxScore) {
-                    maxScore = state.score;
-                    winnerId = playerId;
+        // ==============================
+        // BOT LOGIC
+        // ==============================
+        async function runBotBet(botId) {
+            const botChips = playerChips[botId] || STARTING_CHIPS;
+            const betAmount = Math.min(firstPlayerBet, botChips);
+            
+            // Simple AI: 80% call, 20% fold if low chips
+            const shouldFold = botChips < firstPlayerBet && Math.random() < 0.2;
+            
+            if (shouldFold || betAmount <= 0) {
+                await db.ref(`lobbies/${lobbyId}/matchState`).update({
+                    [`foldedPlayers/${botId}`]: true,
+                    [`completedBetting/${botId}`]: true,
+                    [`completedRolling/${botId}`]: true
+                });
+                showToast(`${lobbyPlayers[botId].name} folded!`);
+            } else {
+                playerChips[botId] = botChips - betAmount;
+                currentPot += betAmount;
+                
+                await db.ref(`lobbies/${lobbyId}`).update({
+                    [`players/${botId}/chips`]: playerChips[botId],
+                    'matchState/pot': currentPot,
+                    [`matchState/completedBetting/${botId}`]: true,
+                    [`matchState/playerBets/${botId}`]: betAmount
+                });
+                
+                showToast(`${lobbyPlayers[botId].name} called with ${betAmount} chips!`);
+            }
+            
+            checkBettingPhaseComplete();
+        }
+
+        async function runBotRoll(botId) {
+            let botDice = [0, 0, 0, 0, 0];
+            let botHeld = [false, false, false, false, false];
+            
+            for (let roll = 0; roll < 2; roll++) {
+                botDice = botDice.map((val, i) => botHeld[i] ? val : Math.floor(Math.random() * 6) + 1);
+                
+                if (roll === 0) {
+                    const counts = {};
+                    botDice.forEach(d => counts[d] = (counts[d] || 0) + 1);
+                    
+                    botDice.forEach((val, i) => {
+                        if (counts[val] >= 2) {
+                            botHeld[i] = true;
+                        }
+                    });
+                }
+            }
+            
+            const botScore = calculateBotScore(botDice);
+            
+            await db.ref(`lobbies/${lobbyId}/players/${botId}/score`).set(botScore);
+            await db.ref(`lobbies/${lobbyId}/matchState/completedRolling/${botId}`).set(true);
+            
+            showToast(`${lobbyPlayers[botId].name} rolled! Score: ${botScore}`);
+            
+            checkRollingPhaseComplete();
+        }
+
+        function calculateBotScore(dice) {
+            const counts = {};
+            dice.forEach(d => counts[d] = (counts[d] || 0) + 1);
+            
+            const values = Object.values(counts).sort((a, b) => b - a);
+            const uniqueValues = Object.keys(counts).map(Number).sort((a, b) => a - b);
+            
+            if (values[0] === 5) return 10000;
+            if (values[0] === 4) return 5000;
+            if (values[0] === 3 && values[1] === 2) return 2500;
+            if (uniqueValues.length === 5 && 
+                (uniqueValues.join('') === '12345' || uniqueValues.join('') === '23456')) return 2000;
+            if (values[0] === 3) return 1000;
+            if (values[0] === 2 && values[1] === 2) return 500;
+            if (values[0] === 2) return 100;
+            return Math.max(...dice) * 10;
+        }
+
+        // ==============================
+        // GAME END & SCOREBOARD
+        // ==============================
+        async function finishGame() {
+            let winnerPlayerId = null;
+            let highestScore = -1;
+            const playerScores = {};
+            
+            Object.entries(lobbyPlayers).forEach(([playerId, player]) => {
+                const foldedPlayers = currentMatchState.foldedPlayers || {};
+                const score = foldedPlayers[playerId] ? -1 : (player.score || 0);
+                playerScores[playerId] = score;
+                
+                if (score > highestScore) {
+                    highestScore = score;
+                    winnerPlayerId = playerId;
                 }
             });
-
-            return winnerId;
-        }
-
-        // Collect all scores
-        function collectScores() {
-            const scores = {};
-            Object.entries(mpGame.gameState.playerStates).forEach(([playerId, state]) => {
-                scores[playerId] = state.score;
-            });
-            return scores;
-        }
-
-        // Show game over
-        function showGameOver(winnerId, scores) {
-            const winner = mpGame.getPlayer(winnerId);
-            const winnerName = winner ? winner.name : 'Unknown';
             
-            alert(`Game Over!\n\nWinner: ${winnerName}\n\nFinal Scores:\n${
-                Object.entries(scores).map(([id, score]) => 
-                    `${mpGame.getPlayer(id)?.name}: ${score}`
-                ).join('\n')
-            }`);
+            // Award pot to winner
+            const winnerChips = playerChips[winnerPlayerId] + currentPot;
+            await db.ref(`lobbies/${lobbyId}/players/${winnerPlayerId}/chips`).set(winnerChips);
+            
+            const rankings = Object.entries(playerScores)
+                .sort((a, b) => b[1] - a[1])
+                .map(([playerId, score], index) => ({
+                    playerId,
+                    playerName: lobbyPlayers[playerId].name,
+                    score: score === -1 ? 'FOLDED' : score,
+                    winnings: playerId === winnerPlayerId ? currentPot : 0,
+                    rank: index + 1,
+                    isWinner: playerId === winnerPlayerId
+                }));
+
+            await updateMatchState({
+                gameOver: true,
+                winner: winnerPlayerId,
+                rankings: rankings
+            });
+
+            showScoreboard(rankings, winnerPlayerId);
         }
 
-        // Return to lobby
-        function returnToLobby() {
+        function showScoreboard(rankings, winnerPlayerId) {
+            populateScoreboard(rankings, winnerPlayerId);
+            document.getElementById('scoreboardModal').classList.add('active');
+            scoreboardShown = true;
+        }
+
+        function populateScoreboard(rankings, winnerPlayerId) {
+            const resultsContainer = document.getElementById('scoreboardResults');
+            resultsContainer.innerHTML = '';
+            
+            rankings.forEach((entry) => {
+                const resultItem = document.createElement('div');
+                resultItem.className = 'score-row-item';
+                
+                const rankDisplay = ['🥇', '🥈', '🥉'][entry.rank - 1] || `#${entry.rank}`;
+                const winnerBadge = entry.isWinner ? '<span class="winner-badge">👑 WINNER</span>' : '';
+                const winnings = entry.winnings > 0 ? `<div style="color: #27ae60; font-size: 0.9rem;">Won: ${entry.winnings} chips</div>` : '';
+                
+                resultItem.innerHTML = `
+                    <div style="display: flex; align-items: center; width: 100%; gap: 15px;">
+                        <div style="font-size: 1.8rem; min-width: 50px;">${rankDisplay}</div>
+                        <div style="flex: 1;">
+                            <div style="font-size: 1.2rem; font-weight: bold;">${entry.playerName}</div>
+                            <div style="color: #aaa; font-size: 0.9rem;">Score: ${entry.score}</div>
+                            ${winnings}
+                        </div>
+                        ${winnerBadge}
+                    </div>
+                `;
+                
+                if (entry.isWinner) {
+                    resultItem.classList.add('winner');
+                }
+                
+                resultsContainer.appendChild(resultItem);
+            });
+        }
+
+        function returnToLobbyFromScoreboard() {
+            document.getElementById('scoreboardModal').classList.remove('active');
+            leaveLobby().then(() => {
+                if (lobbyRef) {
+                    lobbyRef.off();
+                }
+                window.location.href = '../../lobby.html';
+            });
+        }
+
+        async function playAgain() {
+            document.getElementById('scoreboardModal').classList.remove('active');
+            
+            dice = [0, 0, 0, 0, 0];
+            heldDice = [false, false, false, false, false];
+            rollsLeft = 2;
+            currentScore = 0;
+            currentPot = 0;
+            scoreboardShown = false;
+            gameStarted = false;
+            hasFolded = false;
+            
+            renderDice();
+            
+            // Reset all players
+            const turnPlayers = Object.keys(lobbyPlayers);
+            const updates = {};
+            
+            turnPlayers.forEach(playerId => {
+                updates[`players/${playerId}/score`] = 0;
+            });
+            
+            updates['matchState'] = {
+                status: 'betting',
+                turnOrder: turnPlayers,
+                currentTurn: turnPlayers[0],
+                round: (currentMatchState.round || 1) + 1,
+                pot: 0,
+                currentBet: 50,
+                foldedPlayers: {},
+                completedBetting: {},
+                completedRolling: {},
+                gameOver: false,
+                winner: null,
+                rankings: null
+            };
+            
+            await db.ref(`lobbies/${lobbyId}`).update(updates);
+            
+            showToast('New game started!');
+        }
+
+        // ==============================
+        // UTILITY FUNCTIONS
+        // ==============================
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            toast.textContent = msg;
+            toast.classList.add('show');
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3000);
+        }
+
+        async function returnToLobby() {
             if (confirm('Are you sure you want to leave the game?')) {
-                if (!isSinglePlayer) {
-                    mpGame.cleanup();
-                    leaveLobby();
+                try {
+                    // Stop listening to lobby updates
+                    if (window.globalLobbyRef) {
+                        offLobbyUpdate(window.globalLobbyRef);
+                        window.globalLobbyRef = null;
+                    }
+                    // Remove player from lobby
+                    await leaveLobby();
+                } catch (error) {
+                    console.error('Error leaving lobby:', error);
                 }
                 window.location.href = '../../lobby.html';
             }
         }
 
+        async function leaveLobby() {
+            if (!db || !lobbyId || !playerUUID) {
+                console.error('Missing required data for leaving lobby');
+                return false;
+            }
+            
+            try {
+                // Remove player from lobby
+                await db.ref(`lobbies/${lobbyId}/players/${playerUUID}`).remove();
+                console.log('Left lobby:', lobbyId);
+                window.currentLobbyId = null;
+                sessionStorage.removeItem('currentLobbyId');
+                return true;
+            } catch (error) {
+                console.error('Error leaving lobby:', error);
+                return false;
+            }
+        }
+
         // Clean up on page unload
         window.addEventListener('beforeunload', () => {
-            if (!isSinglePlayer) {
-                mpGame.cleanup();
+            if (window.globalLobbyRef) {
+                offLobbyUpdate(window.globalLobbyRef);
             }
         });
     </script>

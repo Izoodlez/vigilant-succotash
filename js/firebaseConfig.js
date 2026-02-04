@@ -243,7 +243,7 @@ async function switchGame(newGameType, lobbyId = null) {
     if (!id) return false;
 
     try {
-        await db.ref(`lobbies/${id}/currentGame`).set(newGameType);
+        await db.ref(`lobbies/${id}/gameType`).set(newGameType);
         console.log("Switched game to:", newGameType);
         return true;
     } catch (error) {

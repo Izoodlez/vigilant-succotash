@@ -346,7 +346,7 @@
     <main>
         <!-- LEFT SECTION: Quick Play / Create Lobby -->
         <div class="section">
-            <h2>Quick Play</h2>
+            <h2>Create Lobby</h2>
             
             <div class="input-group">
                 <label>Your Username</label>
@@ -366,20 +366,16 @@
                 Find Public Match
             </button>
 
+            <button id="createPrivateBtn" onclick="createPrivateMatch()" class="btn-secondary">
+                Create Private Match
+            </button>
+
             <div class="status-message waiting hidden" id="publicStatus">
                 <div class="loading">
                     <div class="spinner"></div>
                     Searching for players...
                 </div>
             </div>
-
-            <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.1); margin: 20px 0;">
-
-            <h3 style="color: var(--accent-gold); font-size: 1.1rem; margin-bottom: 15px;">Create Private Match</h3>
-
-            <button id="createPrivateBtn" onclick="createPrivateMatch()" class="btn-secondary">
-                Create Private Match
-            </button>
 
             <div class="status-message hidden" id="privateStatus">
                 <strong>Private Match Created!</strong>
@@ -393,7 +389,12 @@
 
         <!-- RIGHT SECTION: Join Lobby / Current Status -->
         <div class="section">
-            <h2>Join Existing Match</h2>
+            <h2>Join Existing Lobby</h2>
+
+            <div class="input-group">
+                <label>Your Username</label>
+                <input type="text" id="usernameInputJoin" placeholder="Enter your name..." maxlength="20">
+            </div>
 
             <div class="input-group">
                 <label>Lobby Key (from friend)</label>
@@ -413,6 +414,20 @@
             <div id="lobbyInfo" class="status-message hidden">
                 <p><strong>Lobby ID:</strong> <span id="lobbyIdDisplay">-</span></p>
                 <p style="margin-top: 5px;"><strong>Current Game:</strong> <span id="currentGameDisplay">-</span></p>
+            </div>
+
+            <div class="input-group hidden" id="gameChangeGroup">
+                <label>Change Game</label>
+                <div style="display: flex; gap: 8px; align-items: flex-end;">
+                    <select id="gameSelectInLobby" style="flex: 1;">
+                        <option value="">Choose a new game...</option>
+                        <option value="ShuttheBox">Shut the Box</option>
+                        <option value="DicePoker">Dice Poker</option>
+                    </select>
+                    <button id="changeGameBtn" onclick="changeGameInLobby()" class="btn-secondary btn-small">
+                        Change
+                    </button>
+                </div>
             </div>
 
             <div class="input-group">
@@ -551,23 +566,16 @@
                     await joinLobby(result.lobbyId, username);
                     window.currentLobbyId = result.lobbyId;
                     
-                    // Display the lobby key
-                    const keyDisplayEl = document.getElementById('keyDisplay');
-                    if (keyDisplayEl) {
-                        keyDisplayEl.textContent = result.lobbyKey;
-                    }
-                    
-                    const privateStatusEl = document.getElementById('privateStatus');
-                    if (privateStatusEl) {
-                        privateStatusEl.classList.remove('hidden');
-                    }
+                    // Display the lobby key from Firebase
+                    document.getElementById('keyDisplay').textContent = result.lobbyKey;
+                    document.getElementById('privateStatus').classList.remove('hidden');
                     
                     // Load the lobby UI
                     loadLobbyUI(result.lobbyId);
                     console.log('Private lobby created with key:', result.lobbyKey);
                 } else {
                     console.error('Invalid lobby result:', result);
-                    showStatus('privateStatus', 'Failed to create private match', 'error');
+                    showStatus('privateStatus', 'Failed to create private match - missing key or ID', 'error');
                 }
             } catch (error) {
                 console.error("Error creating private match:", error);
@@ -586,7 +594,7 @@
 
         async function joinByKey() {
             const key = document.getElementById('keyInput').value.trim().toUpperCase();
-            const usernameInput = document.getElementById('usernameInput');
+            const usernameInput = document.getElementById('usernameInputJoin');
             const username = usernameInput.value.trim();
 
             if (!key) {
@@ -637,6 +645,7 @@
             if (!lobbyId) return;
 
             document.getElementById('lobbyInfo').classList.remove('hidden');
+            document.getElementById('gameChangeGroup').classList.remove('hidden');
             document.getElementById('lobbyIdDisplay').textContent = lobbyId;
             document.getElementById('addBotBtn').disabled = false;
             document.getElementById('startGameBtn').disabled = false;
@@ -742,6 +751,7 @@
                         offLobbyUpdate(currentLobbyRef);
                     }
                     document.getElementById('lobbyInfo').classList.add('hidden');
+                    document.getElementById('gameChangeGroup').classList.add('hidden');
                     document.getElementById('playerList').innerHTML = '<p style="color: var(--text-muted); text-align: center;">No lobby joined</p>';
                     document.getElementById('addBotBtn').disabled = true;
                     document.getElementById('startGameBtn').disabled = true;
@@ -753,6 +763,31 @@
                 } finally {
                     setButtonLoading('leaveLobbyBtn', false);
                 }
+            }
+        }
+
+        async function changeGameInLobby() {
+            const newGame = document.getElementById('gameSelectInLobby').value;
+            
+            if (!newGame) {
+                showStatus('joinStatus', 'Please select a game', 'error');
+                return;
+            }
+
+            setButtonLoading('changeGameBtn', true);
+            try {
+                const result = await switchGame(newGame);
+                if (result) {
+                    showStatus('joinStatus', `✓ Game changed to ${newGame}!`);
+                    document.getElementById('gameSelectInLobby').value = '';
+                } else {
+                    showStatus('joinStatus', 'Failed to change game', 'error');
+                }
+            } catch (error) {
+                console.error("Error:", error);
+                showStatus('joinStatus', 'Error changing game: ' + error.message, 'error');
+            } finally {
+                setButtonLoading('changeGameBtn', false);
             }
         }
 

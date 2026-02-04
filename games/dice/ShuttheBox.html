@@ -764,8 +764,10 @@
             <div class="payout-card" id="single-payout-card" style="display:none;">
                 <div class="payout-card-title">PAYOUTS</div>
                 <div class="payout-row"><span>0</span> <span class="win-gold">10x</span></div>
-                <div class="payout-row"><span>1-6</span> <span class="win-gold">2x</span></div>
-                <div class="payout-row"><span>7+</span> <span class="win-red">LOSS</span></div>
+                <div class="payout-row"><span>1-5</span> <span class="win-gold">2x</span></div>
+                <div class="payout-row"><span>6</span> <span class="win-gold">1.5x</span></div>
+                <div class="payout-row"><span>7-8</span> <span style="color:#ddd">PUSH</span></div>
+                <div class="payout-row"><span>9+</span> <span class="win-red">LOSS</span></div>
             </div>
 
             <!-- POT DISPLAY ON TABLE -->
@@ -842,8 +844,10 @@
 
         <div class="payout-table">
             <div class="payout-row"><span>Shut the Box (Score 0)</span> <span>10x Bet</span></div>
-            <div class="payout-row"><span>Score 1 - 6</span> <span>2x Bet</span></div>
-            <div class="payout-row"><span>Score 7+</span> <span style="color:var(--accent-red)">LOSS</span></div>
+            <div class="payout-row"><span>Score 1 - 5</span> <span>2x Bet</span></div>
+            <div class="payout-row"><span>Score 6</span> <span>1.5x Bet</span></div>
+            <div class="payout-row"><span>Score 7 - 8</span> <span>Push</span></div>
+            <div class="payout-row"><span>Score 9+</span> <span style="color:var(--accent-red)">LOSS</span></div>
         </div>
 
         <button class="btn-roll" onclick="startSinglePlayer()">DEAL</button>
@@ -1391,14 +1395,22 @@
                 winnings = currentBet * 10;
                 payoutTitle = "JACKPOT!";
                 message = "Perfect Game! Shut the Box!";
-            } else if (score <= 6) {
+            } else if (score <= 5) {
                 winnings = currentBet * 2;
                 payoutTitle = "WINNER";
-                message = `Good job! Score: ${score}`;
+                message = `Great score! Score: ${score}`;
+            } else if (score === 6) {
+                winnings = currentBet * 1.5;
+                payoutTitle = "GOOD HAND";
+                message = `Score: ${score}. Nice play!`;
+            } else if (score === 7 || score === 8) {
+                winnings = 0;
+                payoutTitle = "PUSH";
+                message = `Score: ${score}. Break even.`;
             } else {
                 winnings = 0;
-                payoutTitle = "HOUSE WINS";
-                message = `Score: ${score}. Try to get 6 or lower.`;
+                payoutTitle = "BUST";
+                message = `Score: ${score}. Too high!`;
             }
 
             credits += winnings;

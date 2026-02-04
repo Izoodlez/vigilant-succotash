@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zoods Room - Lobby</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-dark: #1a1a1a;
+            --accent-gold: #ffbd2e;
+            --accent-blue: #3498db;
+            --accent-red: #e74c3c;
+            --accent-green: #27ae60;
+            --text-main: #ffffff;
+            --text-muted: #aab7b8;
+            --table-color: #35654d;
+            --table-dark: #1e3b2d;
+        }
+
+        body {
+            background: linear-gradient(135deg, var(--bg-dark) 0%, var(--table-dark) 100%);
+            color: var(--text-main);
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        header {
+            background: rgba(0, 0, 0, 0.7);
+            padding: 20px;
+            text-align: center;
+            border-bottom: 2px solid var(--accent-gold);
+        }
+
+        header h1 {
+            font-size: 2.5rem;
+            color: var(--accent-gold);
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+            margin-bottom: 5px;
+        }
+
+        header p {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        main {
+            flex: 1;
+            display: flex;
+            gap: 30px;
+            padding: 40px;
+            max-width: 1400px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        .section {
+            flex: 1;
+            background: rgba(0, 0, 0, 0.4);
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            padding: 30px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .section h2 {
+            color: var(--accent-gold);
+            font-size: 1.5rem;
+            border-bottom: 2px solid var(--accent-gold);
+            padding-bottom: 10px;
+            margin-bottom: 15px;
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        label {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-weight: bold;
+        }
+
+        input[type="text"], select {
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: var(--text-main);
+            padding: 12px 15px;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: all 0.2s;
+        }
+
+        input[type="text"]:focus, select:focus {
+            outline: none;
+            border-color: var(--accent-gold);
+            box-shadow: 0 0 10px rgba(255, 189, 46, 0.3);
+        }
+
+        button {
+            background: var(--accent-gold);
+            color: #222;
+            border: none;
+            padding: 14px 28px;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        button:hover {
+            background: #ffca57;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(255, 189, 46, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        button:disabled {
+            background: #555;
+            color: #999;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .btn-secondary {
+            background: var(--accent-blue);
+            color: #fff;
+        }
+
+        .btn-secondary:hover {
+            background: #4aa3df;
+            box-shadow: 0 5px 15px rgba(52, 152, 219, 0.4);
+        }
+
+        .btn-danger {
+            background: var(--accent-red);
+            color: #fff;
+        }
+
+        .btn-danger:hover {
+            background: #ec7063;
+            box-shadow: 0 5px 15px rgba(231, 76, 60, 0.4);
+        }
+
+        .btn-small {
+            padding: 8px 16px;
+            font-size: 0.85rem;
+        }
+
+        .player-list {
+            display: grid;
+            gap: 10px;
+        }
+
+        .player-card {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 12px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .player-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: var(--accent-blue);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            flex-shrink: 0;
+        }
+
+        .player-avatar.bot {
+            background: var(--accent-green);
+        }
+
+        .player-info {
+            flex: 1;
+        }
+
+        .player-name {
+            font-weight: bold;
+            color: var(--text-main);
+        }
+
+        .player-score {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        .player-badge {
+            background: rgba(52, 152, 219, 0.3);
+            color: var(--accent-blue);
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: bold;
+        }
+
+        .player-badge.bot-badge {
+            background: rgba(39, 174, 96, 0.3);
+            color: var(--accent-green);
+        }
+
+        .status-message {
+            background: rgba(52, 152, 219, 0.2);
+            border-left: 4px solid var(--accent-blue);
+            padding: 12px;
+            border-radius: 4px;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        .status-message.waiting {
+            border-left-color: var(--accent-gold);
+            background: rgba(255, 189, 46, 0.1);
+        }
+
+        .status-message.error {
+            border-left-color: var(--accent-red);
+            background: rgba(231, 76, 60, 0.1);
+        }
+
+        .game-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 10px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .game-option {
+            background: rgba(0, 0, 0, 0.3);
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 12px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .game-option:hover {
+            border-color: var(--accent-gold);
+            background: rgba(255, 189, 46, 0.1);
+            transform: translateY(-2px);
+        }
+
+        .game-option.selected {
+            background: var(--accent-gold);
+            color: #222;
+            border-color: var(--accent-gold);
+        }
+
+        .copy-key-container {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .key-display {
+            background: rgba(0, 0, 0, 0.6);
+            border: 2px solid var(--accent-gold);
+            color: var(--accent-gold);
+            padding: 12px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            font-size: 1.2rem;
+            flex: 1;
+            text-align: center;
+        }
+
+        .copy-btn {
+            padding: 12px 16px;
+        }
+
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            color: var(--text-muted);
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.2);
+            border-top-color: var(--accent-gold);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        @media (max-width: 1024px) {
+            main {
+                flex-direction: column;
+                gap: 20px;
+                padding: 20px;
+            }
+
+            header h1 {
+                font-size: 1.8rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>🎲 ZOODS ROOM 🎲</h1>
+        <p>Multiplayer Lobby System</p>
+    </header>
+
+    <main>
+        <!-- LEFT SECTION: Quick Play / Create Lobby -->
+        <div class="section">
+            <h2>Quick Play</h2>
+            
+            <div class="input-group">
+                <label>Select Game</label>
+                <select id="gameSelect">
+                    <option value="">Choose a game...</option>
+                    <optgroup label="Dice Games">
+                        <option value="ShuttheBox">Shut the Box</option>
+                        <option value="DicePoker">Dice Poker</option>
+                        <option value="Ceelo">Ceelo</option>
+                    </optgroup>
+                    <optgroup label="Card Games">
+                        <option value="Bullshit">Bullshit</option>
+                        <option value="LiarsTable">Liar's Table</option>
+                        <option value="UnoGarbage">Uno Garbage</option>
+                    </optgroup>
+                    <optgroup label="Board Games">
+                        <option value="Chess">Chess</option>
+                        <option value="Monopoly">Monopoly</option>
+                    </optgroup>
+                </select>
+            </div>
+
+            <button id="publicMatchBtn" onclick="findPublicMatch()">
+                Find Public Match
+            </button>
+
+            <div class="status-message waiting hidden" id="publicStatus">
+                <div class="loading">
+                    <div class="spinner"></div>
+                    Searching for players...
+                </div>
+            </div>
+
+            <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.1); margin: 20px 0;">
+
+            <h3 style="color: var(--accent-gold); font-size: 1.1rem; margin-bottom: 15px;">Create Private Match</h3>
+
+            <button id="createPrivateBtn" onclick="createPrivateMatch()" class="btn-secondary">
+                Create Private Match
+            </button>
+
+            <div class="status-message hidden" id="privateStatus">
+                <strong>Private Match Created!</strong>
+                <p style="margin-top: 10px;">Share this key with your friend:</p>
+                <div class="copy-key-container" style="margin-top: 10px;">
+                    <div class="key-display" id="keyDisplay">-</div>
+                    <button class="copy-btn btn-small" onclick="copyKeyToClipboard()">Copy</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- RIGHT SECTION: Join Lobby / Current Status -->
+        <div class="section">
+            <h2>Join Existing Match</h2>
+
+            <div class="input-group">
+                <label>Lobby Key (from friend)</label>
+                <input type="text" id="keyInput" placeholder="e.g., ABC123" maxlength="6" style="text-transform: uppercase;">
+            </div>
+
+            <button id="joinKeyBtn" onclick="joinByKey()" class="btn-secondary">
+                Join by Key
+            </button>
+
+            <div class="status-message hidden" id="joinStatus"></div>
+
+            <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.1); margin: 20px 0;">
+
+            <h3 style="color: var(--accent-gold); font-size: 1.1rem; margin-bottom: 15px;">Current Lobby</h3>
+
+            <div id="lobbyInfo" class="status-message hidden">
+                <p><strong>Lobby ID:</strong> <span id="lobbyIdDisplay">-</span></p>
+                <p style="margin-top: 5px;"><strong>Current Game:</strong> <span id="currentGameDisplay">-</span></p>
+            </div>
+
+            <div class="input-group">
+                <label>Players in Lobby</label>
+                <div class="player-list" id="playerList" style="max-height: 200px; overflow-y: auto;">
+                    <p style="color: var(--text-muted); text-align: center;">No lobby joined</p>
+                </div>
+            </div>
+
+            <button id="addBotBtn" onclick="addBotToLobby()" class="btn-small" disabled>
+                Add Bot
+            </button>
+
+            <button id="startGameBtn" onclick="startGame()" class="btn-secondary btn-small" disabled style="margin-top: auto;">
+                Start Game
+            </button>
+
+            <button id="leaveLobbyBtn" onclick="leaveLobbyUI()" class="btn-danger btn-small" disabled>
+                Leave Lobby
+            </button>
+        </div>
+    </main>
+
+    <!-- Firebase (compat) SDKs — must load BEFORE js/firebaseConfig.js -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+
+    <!-- Firebase utilities (your file that expects global `firebase`) -->
+    <script src="js/firebaseConfig.js"></script>
+
+    <script>
+        let currentLobbyRef = null;
+        // currentLobbyId is now a window global set in firebaseConfig.js
+
+        // Initialize Firebase as soon as possible
+        if (typeof initializeFirebase === 'function') {
+            const initialized = initializeFirebase();
+            console.log("Firebase initialized:", initialized);
+        }
+
+        // Initialize on page load
+        window.addEventListener('load', () => {
+            console.log("Lobby page loaded");
+            if (window.firebase) {
+                
+                // Check if player was already in a lobby
+                const resumeLobbyId = sessionStorage.getItem('currentLobbyId');
+                if (resumeLobbyId) {
+                    resumeLobby(resumeLobbyId);
+                }
+            } else {
+                console.error("Firebase SDK not loaded");
+                showStatus('joinStatus', 'Firebase SDK failed to load', 'error');
+            }
+        });
+
+        async function findPublicMatch() {
+            const gameSelect = document.getElementById('gameSelect');
+            const gameType = gameSelect.value;
+
+            if (!gameType) {
+                showStatus('publicStatus', 'Please select a game', 'error');
+                return;
+            }
+
+            setButtonLoading('publicMatchBtn', true);
+            showStatus('publicStatus', 'Searching for match...', 'waiting');
+
+            try {
+                // Try to find a public lobby
+                let result = await findPublicLobby(gameType);
+                
+                if (!result) {
+                    // No public lobby found, create a new one
+                    showStatus('publicStatus', 'Creating new lobby...', 'waiting');
+                    result = await createLobby(gameType, false); // false = public lobby
+                    
+                    if (result && result.lobbyId) {
+                        // Join the lobby we just created
+                        await joinLobby(result.lobbyId);
+                        window.currentLobbyId = result.lobbyId;
+                        loadLobbyUI(result.lobbyId);
+                        showStatus('publicStatus', '✓ Lobby created! Waiting for players...', 'waiting');
+                    } else {
+                        showStatus('publicStatus', 'Failed to create lobby', 'error');
+                    }
+                } else {
+                    // Found a lobby, load it
+                    const lobbyId = result.lobbyId || result;
+                    window.currentLobbyId = lobbyId;
+                    loadLobbyUI(lobbyId);
+                    showStatus('publicStatus', '✓ Matched! Waiting for game to start...', 'waiting');
+                }
+            } catch (error) {
+                console.error("Error:", error);
+                showStatus('publicStatus', 'Error finding match: ' + error.message, 'error');
+            } finally {
+                setButtonLoading('publicMatchBtn', false);
+            }
+        }
+
+        async function createPrivateMatch() {
+            const gameSelect = document.getElementById('gameSelect');
+            const gameType = gameSelect.value;
+
+            if (!gameType) {
+                showStatus('privateStatus', 'Please select a game', 'error');
+                return;
+            }
+
+            setButtonLoading('createPrivateBtn', true);
+            console.log('Creating private lobby for game:', gameType);
+
+            try {
+                const result = await createLobby(gameType, true);
+                console.log('Lobby created:', result);
+                
+                if (result && result.lobbyId && result.lobbyKey) {
+                    // Join the lobby we just created
+                    await joinLobby(result.lobbyId);
+                    window.currentLobbyId = result.lobbyId;
+                    
+                    // Display the lobby key
+                    const keyDisplayEl = document.getElementById('keyDisplay');
+                    if (keyDisplayEl) {
+                        keyDisplayEl.textContent = result.lobbyKey;
+                    }
+                    
+                    const privateStatusEl = document.getElementById('privateStatus');
+                    if (privateStatusEl) {
+                        privateStatusEl.classList.remove('hidden');
+                    }
+                    
+                    // Load the lobby UI
+                    loadLobbyUI(result.lobbyId);
+                    console.log('Private lobby created with key:', result.lobbyKey);
+                } else {
+                    console.error('Invalid lobby result:', result);
+                    showStatus('privateStatus', 'Failed to create private match', 'error');
+                }
+            } catch (error) {
+                console.error("Error creating private match:", error);
+                showStatus('privateStatus', 'Error: ' + error.message, 'error');
+            } finally {
+                setButtonLoading('createPrivateBtn', false);
+            }
+        }
+
+        function copyKeyToClipboard() {
+            const key = document.getElementById('keyDisplay').textContent;
+            navigator.clipboard.writeText(key).then(() => {
+                showStatus('privateStatus', '✓ Key copied to clipboard!');
+            });
+        }
+
+        async function joinByKey() {
+            const key = document.getElementById('keyInput').value.trim();
+
+            if (!key) {
+                showStatus('joinStatus', 'Enter a lobby key', 'error');
+                return;
+            }
+
+            setButtonLoading('joinKeyBtn', true);
+
+            try {
+                const lobby = await joinLobby(key);
+                if (lobby) {
+                    window.currentLobbyId = lobby;
+                    loadLobbyUI(window.currentLobbyId);
+                    showStatus('joinStatus', '✓ Joined lobby!');
+                    document.getElementById('keyInput').value = '';
+                } else {
+                    showStatus('joinStatus', 'Lobby not found', 'error');
+                }
+            } catch (error) {
+                console.error("Error:", error);
+                showStatus('joinStatus', 'Error: ' + error.message, 'error');
+            } finally {
+                setButtonLoading('joinKeyBtn', false);
+            }
+        }
+
+        async function resumeLobby(lobbyId) {
+            try {
+                const lobbyData = await getLobbyState(lobbyId);
+                if (lobbyData) {
+                    window.currentLobbyId = lobbyId;
+                    loadLobbyUI(lobbyId);
+                    console.log("Resumed lobby:", lobbyId);
+                }
+            } catch (error) {
+                console.error("Error resuming lobby:", error);
+                sessionStorage.removeItem('currentLobbyId');
+            }
+        }
+
+        function loadLobbyUI(lobbyId) {
+            if (!lobbyId) return;
+
+            document.getElementById('lobbyInfo').classList.remove('hidden');
+            document.getElementById('lobbyIdDisplay').textContent = lobbyId;
+            document.getElementById('addBotBtn').disabled = false;
+            document.getElementById('startGameBtn').disabled = false;
+            document.getElementById('leaveLobbyBtn').disabled = false;
+
+            // Listen for real-time updates
+            if (currentLobbyRef) {
+                offLobbyUpdate(currentLobbyRef);
+            }
+
+            currentLobbyRef = onLobbyUpdate((lobbyData) => {
+                updateLobbyDisplay(lobbyData);
+            }, lobbyId);
+        }
+
+        function updateLobbyDisplay(lobbyData) {
+            if (!lobbyData) return;
+            
+            // Update game name
+            document.getElementById('currentGameDisplay').textContent = lobbyData.gameType || '-';
+
+            // Update player list
+            const playerList = document.getElementById('playerList');
+            playerList.innerHTML = '';
+
+            if (lobbyData.players && Object.keys(lobbyData.players).length > 0) {
+                Object.entries(lobbyData.players).forEach(([uuid, player]) => {
+                    const card = document.createElement('div');
+                    card.className = 'player-card';
+                    
+                    const avatarClass = player.isBot ? 'player-avatar bot' : 'player-avatar';
+                    const playerName = player.name || 'Player';
+                    const initials = playerName.substring(0, 1).toUpperCase();
+                    const badge = player.isBot ? '<span class="player-badge bot-badge">BOT</span>' : '<span class="player-badge">PLAYER</span>';
+
+                    card.innerHTML = `
+                        <div class="${avatarClass}">${initials}</div>
+                        <div class="player-info">
+                            <div class="player-name">${playerName}</div>
+                            <div class="player-score">Score: ${player.score || 0}</div>
+                        </div>
+                        ${badge}
+                    `;
+
+                    playerList.appendChild(card);
+                });
+            } else {
+                playerList.innerHTML = '<p style="color: var(--text-muted); text-align: center;">No players yet</p>';
+            }
+        }
+
+        async function addBotToLobby() {
+            setButtonLoading('addBotBtn', true);
+            try {
+                const botNames = ['Chip', 'Slick', 'Lucky', 'Ace'];
+                const botName = botNames[Math.floor(Math.random() * botNames.length)];
+                const result = await addBotPlayer(botName);
+                if (result) {
+                    showStatus('joinStatus', `✓ ${botName} joined the lobby!`);
+                }
+            } catch (error) {
+                console.error("Error:", error);
+                showStatus('joinStatus', 'Error adding bot: ' + error.message, 'error');
+            } finally {
+                setButtonLoading('addBotBtn', false);
+            }
+        }
+
+        async function startGame() {
+            const gameType = document.getElementById('currentGameDisplay').textContent;
+            if (gameType === '-') {
+                showStatus('joinStatus', 'No game selected', 'error');
+                return;
+            }
+
+            // Map game names to MULTIPLAYER HTML files (use structured /games/multiplayer folder)
+            const gameMap = {
+                'ShuttheBox': 'games/multiplayer/ShuttheBox-Multiplayer.html',
+                'DicePoker': 'games/multiplayer/DicePoker-Multiplayer.html',
+                'Ceelo': 'games/dice/Ceelo.html',  // TODO: Create multiplayer version
+                'Bullshit': 'games/card/Bullshit.html',  // TODO: Create multiplayer version
+                'LiarsTable': 'games/card/Liars Table.html',  // TODO: Create multiplayer version
+                'UnoGarbage': 'games/card/UnoGarbage.html',  // TODO: Create multiplayer version
+                'Chess': 'games/board/Chess.html',  // TODO: Create multiplayer version
+                'Monopoly': 'games/board/Monopoly.html'  // TODO: Create multiplayer version
+            };
+
+            const gameUrl = gameMap[gameType];
+            if (gameUrl) {
+                console.log('Starting game:', gameType, 'with lobby:', window.currentLobbyId);
+                window.location.href = gameUrl + '?lobbyId=' + window.currentLobbyId;
+            } else {
+                showStatus('joinStatus', 'Game not found: ' + gameType, 'error');
+            }
+        }
+
+        async function leaveLobbyUI() {
+            if (confirm('Are you sure you want to leave this lobby?')) {
+                setButtonLoading('leaveLobbyBtn', true);
+                try {
+                    await leaveLobby();
+                    if (currentLobbyRef) {
+                        offLobbyUpdate(currentLobbyRef);
+                    }
+                    document.getElementById('lobbyInfo').classList.add('hidden');
+                    document.getElementById('playerList').innerHTML = '<p style="color: var(--text-muted); text-align: center;">No lobby joined</p>';
+                    document.getElementById('addBotBtn').disabled = true;
+                    document.getElementById('startGameBtn').disabled = true;
+                    document.getElementById('leaveLobbyBtn').disabled = true;
+                    showStatus('joinStatus', '✓ Left lobby');
+                } catch (error) {
+                    console.error("Error:", error);
+                    showStatus('joinStatus', 'Error leaving lobby: ' + error.message, 'error');
+                } finally {
+                    setButtonLoading('leaveLobbyBtn', false);
+                }
+            }
+        }
+
+        // Utility functions
+        function showStatus(elementId, message, type = 'info') {
+            const el = document.getElementById(elementId);
+            if (message) {
+                el.textContent = message;
+                el.className = `status-message ${type}`;
+                el.classList.remove('hidden');
+            } else {
+                el.classList.add('hidden');
+            }
+        }
+
+        function setButtonLoading(buttonId, loading) {
+            const btn = document.getElementById(buttonId);
+            btn.disabled = loading;
+            if (loading) {
+                btn.textContent = btn.textContent.replace(/^/, '⏳ ');
+            } else {
+                btn.textContent = btn.textContent.replace(/^⏳ /, '');
+            }
+        }
+    </script>
+</body>
+</html>

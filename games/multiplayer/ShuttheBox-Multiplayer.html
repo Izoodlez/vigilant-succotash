@@ -1,0 +1,1060 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shut the Box: Casino Edition - Multiplayer</title>
+    <style>
+        :root {
+            /* Theme Variables */
+            --bg-color: #1a1a1a;
+            --table-color: #35654d;
+            --table-dark: #1e3b2d;
+            --rail-color: #3e2723;
+            --accent-gold: #ffbd2e;
+            --accent-red: #e74c3c;
+            --accent-blue: #3498db;
+            --text-main: #ffffff;
+            --text-muted: #aab7b8;
+            --tile-open: #f0f0f0;
+            --tile-shut: #222222;
+            --font-main: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            --font-mono: 'Courier New', Courier, monospace;
+        }
+
+        body.theme-blue { --table-color: #2c3e50; --table-dark: #1a2530; }
+        body.theme-red { --table-color: #581b1b; --table-dark: #331010; }
+        body.theme-black { --table-color: #222; --table-dark: #111; }
+
+        * { box-sizing: border-box; user-select: none; }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-family: var(--font-main);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        header {
+            width: 100%;
+            height: 60px;
+            padding: 0 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #111;
+            border-bottom: 2px solid #333;
+            z-index: 20;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .brand {
+            font-size: 1.2rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: var(--accent-gold);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .brand span { color: #fff; opacity: 0.7; font-size: 0.8em; }
+
+        .stats-bar {
+            display: flex;
+            gap: 20px;
+            font-family: var(--font-mono);
+            font-size: 1.1rem;
+        }
+
+        .stat-box {
+            background: rgba(0,0,0,0.6);
+            padding: 5px 15px;
+            border-radius: 4px;
+            border: 1px solid rgba(255,255,255,0.1);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .stat-label { color: var(--text-muted); font-size: 0.8em; text-transform: uppercase; }
+        .stat-value { color: var(--accent-gold); font-weight: bold; }
+
+        .nav-btn {
+            background: none;
+            border: 1px solid rgba(255,255,255,0.2);
+            color: var(--text-muted);
+            padding: 5px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+            text-transform: uppercase;
+            font-weight: bold;
+        }
+        .nav-btn:hover { border-color: #fff; color: #fff; background: rgba(255,255,255,0.1); }
+
+        main {
+            flex: 1;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        .game-board {
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle at center, var(--table-color) 20%, var(--table-dark) 100%);
+            border: 20px solid var(--rail-color);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            position: relative;
+        }
+
+        .game-board::before {
+            content: "SHUT THE BOX";
+            position: absolute;
+            top: 60%; left: 50%;
+            transform: translate(-50%, -50%) rotate(-10deg);
+            font-size: 6vw;
+            font-weight: 900;
+            color: rgba(0,0,0,0.1);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .lobby-info-panel {
+            position: absolute;
+            top: 30px;
+            left: 30px;
+            background: rgba(0,0,0,0.5);
+            border: 2px solid var(--accent-gold);
+            border-radius: 10px;
+            padding: 15px;
+            min-width: 200px;
+            z-index: 5;
+            font-size: 0.85rem;
+        }
+
+        .lobby-info-panel p {
+            margin: 5px 0;
+            color: var(--text-muted);
+        }
+
+        .lobby-info-panel strong {
+            color: var(--accent-gold);
+        }
+
+        .bot-hud {
+            display: flex;
+            gap: 40px;
+            width: 100%;
+            justify-content: center;
+            align-items: flex-start;
+            position: absolute;
+            top: 30px;
+            z-index: 5;
+            min-height: 90px;
+        }
+
+        .bot-hud.hidden { display: none; }
+
+        .player-badge {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            opacity: 0.5;
+            transition: opacity 0.3s, transform 0.3s;
+            background: rgba(0,0,0,0.3);
+            padding: 10px 15px;
+            border-radius: 10px;
+            min-width: 110px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .player-badge.current {
+            opacity: 1;
+            transform: scale(1.05);
+            background: rgba(0,0,0,0.5);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+            border: 1px solid var(--accent-gold);
+        }
+
+        .player-badge.current .avatar {
+            border-color: var(--accent-gold);
+            box-shadow: 0 0 15px var(--accent-gold);
+        }
+
+        .avatar {
+            width: 45px;
+            height: 45px;
+            border-radius: 50%;
+            background: #222;
+            border: 2px solid #555;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-weight: bold;
+            color: #fff;
+            margin-bottom: 5px;
+        }
+
+        .p-name {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #ccc;
+            font-weight: bold;
+        }
+
+        .score-display {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+            margin-top: 5px;
+        }
+
+        .score-row {
+            display: flex;
+            justify-content: space-between;
+            width: 100%;
+            font-size: 0.8rem;
+            color: #aaa;
+            gap: 8px;
+        }
+
+        .score-val { color: #fff; font-weight: bold; }
+        .score-total { color: var(--accent-gold); }
+
+        .pot-container {
+            position: absolute;
+            top: 150px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 30px;
+            padding: 8px 30px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--accent-gold);
+            font-weight: bold;
+            font-size: 1.2rem;
+            z-index: 2;
+        }
+
+        .tiles-container {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            z-index: 1;
+            margin-top: 220px;
+        }
+
+        .tile {
+            width: 65px;
+            height: 100px;
+            background: var(--tile-open);
+            border-radius: 8px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 2.2rem;
+            font-weight: bold;
+            color: #333;
+            cursor: pointer;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.4);
+            transition: transform 0.2s, background 0.2s;
+        }
+
+        .tile:hover:not(.shut):not(.disabled) {
+            transform: translateY(-8px);
+        }
+
+        .tile.selected {
+            background: var(--accent-gold);
+            color: #000;
+            box-shadow: 0 4px 0 #cca300, 0 8px 25px rgba(255, 189, 46, 0.5);
+            transform: translateY(-12px);
+        }
+
+        .tile.shut {
+            background: rgba(0,0,0,0.2);
+            color: rgba(255,255,255,0.05);
+            transform: rotateX(80deg);
+            pointer-events: none;
+        }
+
+        .dice-area {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 50px;
+            height: 120px;
+            z-index: 1;
+            margin-top: 60px;
+        }
+
+        .dice-sum {
+            background: rgba(0,0,0,0.4);
+            padding: 10px 25px;
+            border-radius: 20px;
+            color: #fff;
+            font-weight: bold;
+            font-size: 1.3rem;
+            min-width: 150px;
+            text-align: center;
+            border: 1px solid rgba(255,255,255,0.1);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .dice-sum span { color: var(--accent-gold); font-size: 1.4em; }
+
+        .dice-container {
+            display: flex;
+            gap: 20px;
+        }
+
+        .die {
+            width: 70px;
+            height: 70px;
+            background: linear-gradient(135deg, #fff 0%, #eee 100%);
+            border-radius: 12px;
+            box-shadow: 0 8px 15px rgba(0,0,0,0.4);
+            display: grid;
+            grid-template: repeat(3, 1fr) / repeat(3, 1fr);
+            padding: 8px;
+        }
+
+        .die.rolling {
+            animation: shake 0.5s infinite;
+        }
+
+        .pip {
+            background-color: #222;
+            border-radius: 50%;
+            width: 12px;
+            height: 12px;
+            place-self: center;
+            opacity: 0;
+        }
+
+        .die[data-value="1"] .pip:nth-child(5) { opacity: 1; }
+        .die[data-value="2"] .pip:nth-child(1), .die[data-value="2"] .pip:nth-child(9) { opacity: 1; }
+        .die[data-value="3"] .pip:nth-child(1), .die[data-value="3"] .pip:nth-child(5), .die[data-value="3"] .pip:nth-child(9) { opacity: 1; }
+        .die[data-value="4"] .pip:nth-child(1), .die[data-value="4"] .pip:nth-child(3), .die[data-value="4"] .pip:nth-child(7), .die[data-value="4"] .pip:nth-child(9) { opacity: 1; }
+        .die[data-value="5"] .pip:nth-child(1), .die[data-value="5"] .pip:nth-child(3), .die[data-value="5"] .pip:nth-child(5), .die[data-value="5"] .pip:nth-child(7), .die[data-value="5"] .pip:nth-child(9) { opacity: 1; }
+        .die[data-value="6"] .pip:nth-child(1), .die[data-value="6"] .pip:nth-child(3), .die[data-value="6"] .pip:nth-child(4), .die[data-value="6"] .pip:nth-child(6), .die[data-value="6"] .pip:nth-child(7), .die[data-value="6"] .pip:nth-child(9) { opacity: 1; }
+
+        .controls-area {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin-top: 30px;
+            z-index: 2;
+        }
+
+        button {
+            padding: 14px 35px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1.1rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }
+
+        .btn-roll { background: var(--accent-gold); color: #222; min-width: 160px; }
+        .btn-roll:hover { background: #ffca57; box-shadow: 0 0 15px rgba(255, 189, 46, 0.4); }
+        .btn-roll:disabled { background: #444; color: #777; cursor: not-allowed; }
+
+        .btn-confirm { background: var(--accent-blue); color: #fff; display: none; }
+        .btn-confirm:hover { background: #4aa3df; }
+
+        .btn-end { background: var(--accent-red); color: #fff; }
+        .btn-end:hover { background: #ec7063; }
+
+        .warning-modal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .warning-modal.active {
+            display: flex;
+        }
+
+        .warning-modal-content {
+            background: #1a1a1a;
+            border: 2px solid var(--accent-gold);
+            border-radius: 15px;
+            padding: 30px;
+            max-width: 500px;
+            text-align: center;
+            z-index: 1001;
+        }
+
+        .warning-modal-content h2 {
+            color: var(--accent-gold);
+            margin-bottom: 15px;
+        }
+
+        .warning-modal-content p {
+            color: var(--text-muted);
+            margin-bottom: 20px;
+            line-height: 1.5;
+        }
+
+        .warning-modal-buttons {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+        }
+
+        .warning-modal-buttons button {
+            padding: 10px 20px;
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0,0,0,0.85);
+            color: #fff;
+            padding: 15px 25px;
+            border-radius: 8px;
+            font-weight: bold;
+            border: 2px solid var(--accent-gold);
+            opacity: 0;
+            transition: opacity 0.3s;
+            z-index: 500;
+        }
+
+        .toast.show {
+            opacity: 1;
+        }
+
+        @keyframes shake {
+            0% { transform: rotate(0deg); }
+            25% { transform: rotate(5deg) translate(2px, 2px); }
+            50% { transform: rotate(-5deg) translate(-2px, -2px); }
+            75% { transform: rotate(5deg); }
+            100% { transform: rotate(0deg); }
+        }
+
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="header-left">
+            <div class="brand">Shut the Box <span>MULTIPLAYER</span></div>
+            <button class="nav-btn" onclick="returnToLobby()">← Lobby</button>
+        </div>
+    </header>
+
+    <main>
+        <div class="game-board">
+            <!-- Lobby Info Panel -->
+            <div class="lobby-info-panel" id="lobbyInfoPanel">
+                <p><strong>Lobby:</strong> <span id="lobbyIdDisplay">-</span></p>
+                <p><strong>Players:</strong> <span id="playerCountDisplay">1</span></p>
+            </div>
+
+            <!-- Player HUD -->
+            <div class="bot-hud" id="bot-hud">
+                <!-- Generated dynamically -->
+            </div>
+
+            <!-- Pot Container -->
+            <div class="pot-container" id="pot-container">
+                <div>🎰</div>
+                <div id="pot-label">Waiting for players...</div>
+            </div>
+
+            <!-- Tiles -->
+            <div class="tiles-container" id="tiles-container"></div>
+
+            <!-- Dice Area -->
+            <div class="dice-area">
+                <div class="dice-sum">
+                    <small>DICE SUM</small>
+                    <span id="target-display">-</span>
+                </div>
+                <div class="dice-container">
+                    <div class="die" id="die1" data-value="1">
+                        <div class="pip"></div><div class="pip"></div><div class="pip"></div>
+                        <div class="pip"></div><div class="pip"></div><div class="pip"></div>
+                        <div class="pip"></div><div class="pip"></div><div class="pip"></div>
+                    </div>
+                    <div class="die" id="die2" data-value="1">
+                        <div class="pip"></div><div class="pip"></div><div class="pip"></div>
+                        <div class="pip"></div><div class="pip"></div><div class="pip"></div>
+                        <div class="pip"></div><div class="pip"></div><div class="pip"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Controls -->
+            <div class="controls-area">
+                <button class="btn-roll" id="btn-roll" onclick="rollDice()">ROLL</button>
+                <button class="btn-confirm" id="btn-confirm" onclick="confirmMove()">CONFIRM</button>
+                <button class="btn-end" id="btn-end" onclick="endTurn()">END TURN</button>
+            </div>
+        </div>
+    </main>
+
+    <!-- Warning Modal -->
+    <div class="warning-modal" id="warningModal">
+        <div class="warning-modal-content">
+            <h2>⚠️ Leaving Lobby</h2>
+            <p id="warningMessage">You are about to leave the multiplayer lobby. Any active game will be disconnected.</p>
+            <div class="warning-modal-buttons">
+                <button class="btn-roll" onclick="confirmReturn()">Return to Lobby</button>
+                <button class="btn-confirm" onclick="cancelReturn()" style="background: #666; color: #fff;">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div class="toast" id="toast"></div>
+
+    <!-- Firebase (compat) SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+
+    <!-- Firebase Config & Utilities -->
+    <script src="../../js/firebaseConfig.js"></script>
+
+    <script>
+        // Game state
+        let tiles = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+        let shutTiles = [];
+        let diceSum = 0;
+        let selectedTiles = [];
+        let gameState = 'WAITING'; // WAITING, ROLLING, SELECTING, IDLE
+        let currentPlayerIndex = 0;
+        let isLocalPlayer = false;
+        let currentTurnId = null;
+        let isMyTurn = false;
+        let currentMatchState = null;
+        const MIN_REAL_PLAYERS = 2;
+        let botTurnInProgress = false;
+        let lobbyId = null;
+        let lobbyPlayers = {};
+        let lobbyRef = null;
+
+        // Initialize on load
+        window.addEventListener('load', async () => {
+            // Get lobby ID from URL
+            const params = new URLSearchParams(window.location.search);
+            lobbyId = params.get('lobbyId');
+            if (lobbyId) {
+                window.currentLobbyId = lobbyId;
+            }
+
+            if (!lobbyId) {
+                showWarning('No lobby found. Redirecting to lobby...', () => {
+                    window.location.href = '../../lobby.html';
+                });
+                return;
+            }
+
+            console.log("Initializing multiplayer Shut the Box for lobby:", lobbyId);
+
+            // Initialize Firebase
+            const initialized = initializeFirebase();
+            if (!initialized) {
+                showToast('Firebase initialization failed');
+                return;
+            }
+
+            // Load and sync lobby
+            await loadLobbyState();
+            setupRealtimeSync();
+            initTiles();
+        });
+
+        async function loadLobbyState() {
+            try {
+                const lobbyData = await getLobbyState(lobbyId);
+                if (!lobbyData) {
+                    showToast('Lobby not found');
+                    return;
+                }
+
+                lobbyPlayers = lobbyData.players || {};
+                updateLobbyInfo();
+                setupPlayerHUD();
+
+                // Check if current player is in this lobby
+                const myUUID = getPlayerUUID();
+                isLocalPlayer = !!lobbyPlayers[myUUID] && !lobbyPlayers[myUUID].isBot;
+
+                if (isLocalPlayer) {
+                    gameState = 'WAITING';
+                    showToast('Connected to lobby');
+                }
+            } catch (error) {
+                console.error('Error loading lobby:', error);
+                showToast('Error loading lobby: ' + error.message);
+            }
+        }
+
+        function setupRealtimeSync() {
+            lobbyRef = onLobbyUpdate((lobbyData) => {
+                lobbyPlayers = lobbyData.players || {};
+                updateLobbyInfo();
+                updatePlayerHUD();
+
+                // Ensure turn order is established (ignore bots)
+                ensureTurnOrder(lobbyData);
+
+                // Sync match state from Firebase
+                if (lobbyData.matchState) {
+                    syncFromFirebase(lobbyData.matchState);
+                }
+            }, lobbyId);
+        }
+
+        function updateLobbyInfo() {
+            document.getElementById('lobbyIdDisplay').textContent = lobbyId.slice(0, 12) + '...';
+            const realPlayers = getRealPlayers();
+            document.getElementById('playerCountDisplay').textContent = realPlayers.length;
+            updatePotLabel(realPlayers.length);
+        }
+
+        function getRealPlayers() {
+            return Object.entries(lobbyPlayers)
+                .filter(([_, player]) => !player.isBot)
+                .map(([uuid]) => uuid);
+        }
+
+        function getTurnPlayers() {
+            const realPlayers = getRealPlayers();
+            const botPlayers = Object.entries(lobbyPlayers)
+                .filter(([_, player]) => player.isBot)
+                .map(([uuid]) => uuid);
+            return [...realPlayers, ...botPlayers];
+        }
+
+        function isBotPlayer(playerId) {
+            return !!(lobbyPlayers[playerId] && lobbyPlayers[playerId].isBot);
+        }
+
+        function getHostPlayerId() {
+            const realPlayers = getRealPlayers().sort();
+            return realPlayers.length ? realPlayers[0] : null;
+        }
+
+        function isHostClient() {
+            const myUUID = getPlayerUUID();
+            return myUUID && myUUID === getHostPlayerId();
+        }
+
+        function updatePotLabel(realCount) {
+            const label = document.getElementById('pot-label');
+            if (realCount < MIN_REAL_PLAYERS) {
+                label.textContent = 'Waiting for players...';
+            } else if (!currentTurnId) {
+                label.textContent = 'Setting turn order...';
+            } else if (isMyTurn) {
+                label.textContent = 'Your turn!';
+            } else {
+                const currentPlayer = lobbyPlayers[currentTurnId];
+                const name = currentPlayer ? currentPlayer.name : 'Player';
+                label.textContent = `${name}'s turn`; 
+            }
+        }
+
+        function ensureTurnOrder(lobbyData) {
+            const realPlayers = getRealPlayers();
+            if (realPlayers.length < MIN_REAL_PLAYERS) return;
+
+            const matchState = lobbyData.matchState || {};
+            const hasTurnOrder = Array.isArray(matchState.turnOrder) && matchState.turnOrder.length > 0;
+
+            if (!hasTurnOrder) {
+                // Establish initial turn order with real players, then bots
+                const turnPlayers = getTurnPlayers();
+                updateMatchState({
+                    status: 'playing',
+                    turnOrder: turnPlayers,
+                    currentTurn: turnPlayers[0],
+                    round: 1
+                });
+            }
+        }
+
+        function setupPlayerHUD() {
+            const hudContainer = document.getElementById('bot-hud');
+            hudContainer.innerHTML = '';
+            hudContainer.classList.remove('hidden');
+
+            let playerIndex = 0;
+            Object.entries(lobbyPlayers).forEach(([uuid, player]) => {
+                const badge = document.createElement('div');
+                badge.className = 'player-badge';
+                badge.id = 'badge-' + uuid;
+
+                const initial = player.name.substring(0, 1).toUpperCase();
+                const scoreDisplay = `
+                    <div class="score-display">
+                        <div class="score-row"><span>RND:</span> <span class="score-val" id="score-${uuid}">0</span></div>
+                    </div>
+                `;
+
+                badge.innerHTML = `
+                    <div class="avatar">${initial}</div>
+                    <div class="p-name">${player.name}</div>
+                    ${scoreDisplay}
+                `;
+
+                hudContainer.appendChild(badge);
+                playerIndex++;
+            });
+        }
+
+        function updatePlayerHUD() {
+            Object.keys(lobbyPlayers).forEach(uuid => {
+                const scoreEl = document.getElementById('score-' + uuid);
+                if (scoreEl) {
+                    scoreEl.textContent = lobbyPlayers[uuid].score || 0;
+                }
+            });
+            updateTurnIndicators();
+        }
+
+        function updateTurnIndicators() {
+            Object.keys(lobbyPlayers).forEach(uuid => {
+                const badge = document.getElementById('badge-' + uuid);
+                if (!badge) return;
+                if (uuid === currentTurnId) {
+                    badge.classList.add('current');
+                } else {
+                    badge.classList.remove('current');
+                }
+            });
+            const realCount = getRealPlayers().length;
+            updatePotLabel(realCount);
+        }
+
+        function initTiles() {
+            const container = document.getElementById('tiles-container');
+            container.innerHTML = '';
+            tiles.forEach(i => {
+                const tile = document.createElement('div');
+                tile.className = 'tile';
+                tile.textContent = i;
+                tile.dataset.value = i;
+                tile.onclick = () => toggleTile(i);
+                container.appendChild(tile);
+            });
+        }
+
+        function rollDice() {
+            if (gameState !== 'WAITING' || !isLocalPlayer) return;
+            if (!isMyTurn) {
+                showToast('Not your turn');
+                return;
+            }
+
+            gameState = 'ROLLING';
+            const die1 = document.getElementById('die1');
+            const die2 = document.getElementById('die2');
+
+            die1.classList.add('rolling');
+            die2.classList.add('rolling');
+
+            setTimeout(() => {
+                die1.classList.remove('rolling');
+                die2.classList.remove('rolling');
+
+                const d1 = Math.floor(Math.random() * 6) + 1;
+                const d2 = Math.floor(Math.random() * 6) + 1;
+
+                die1.dataset.value = d1;
+                die2.dataset.value = d2;
+
+                diceSum = d1 + d2;
+                document.getElementById('target-display').textContent = diceSum;
+
+                gameState = 'SELECTING';
+                document.getElementById('btn-roll').style.display = 'none';
+                document.getElementById('btn-confirm').style.display = 'block';
+
+                // Sync move to Firebase
+                syncGameMove({
+                    type: 'dice_roll',
+                    d1: d1,
+                    d2: d2,
+                    sum: diceSum
+                });
+            }, 600);
+        }
+
+        function toggleTile(val) {
+            if (gameState !== 'SELECTING' || !isLocalPlayer) return;
+            if (!isMyTurn) return;
+            if (shutTiles.includes(val)) return;
+
+            const tileEl = document.getElementById('tiles-container').children[val - 1];
+
+            if (selectedTiles.includes(val)) {
+                selectedTiles = selectedTiles.filter(t => t !== val);
+                tileEl.classList.remove('selected');
+            } else {
+                const currentSum = selectedTiles.reduce((a, b) => a + b, 0);
+                if (currentSum + val <= diceSum) {
+                    selectedTiles.push(val);
+                    tileEl.classList.add('selected');
+                } else {
+                    showToast('Too high!');
+                }
+            }
+        }
+
+        function confirmMove() {
+            if (!isMyTurn) return;
+            const sum = selectedTiles.reduce((a, b) => a + b, 0);
+            if (sum === diceSum) {
+                shutTiles.push(...selectedTiles);
+                selectedTiles.forEach(val => {
+                    const tileEl = document.getElementById('tiles-container').children[val - 1];
+                    tileEl.classList.remove('selected');
+                    tileEl.classList.add('shut');
+                });
+                selectedTiles = [];
+
+                // Sync to Firebase
+                syncGameMove({
+                    type: 'tiles_shut',
+                    shutTiles: shutTiles,
+                    score: calculateScore()
+                });
+
+                if (shutTiles.length === 9) {
+                    endTurn();
+                } else {
+                    gameState = 'WAITING';
+                    document.getElementById('btn-roll').style.display = 'block';
+                    document.getElementById('btn-roll').disabled = false;
+                    document.getElementById('btn-confirm').style.display = 'none';
+                    document.getElementById('target-display').textContent = 'ROLL AGAIN';
+                }
+            } else {
+                showToast(`Selected ${sum}, need ${diceSum}`);
+            }
+        }
+
+        function endTurn() {
+            if (!isMyTurn) return;
+            const score = calculateScore();
+            updatePlayerScore(score);
+            syncGameMove({
+                type: 'turn_end',
+                finalScore: score
+            });
+            gameState = 'IDLE';
+            showToast('Turn ended. Waiting for next player...');
+
+            advanceTurn();
+        }
+
+        function advanceTurn() {
+            const realPlayers = getRealPlayers();
+            if (!currentTurnId || realPlayers.length < MIN_REAL_PLAYERS) return;
+
+            const turnOrder = (currentMatchState && Array.isArray(currentMatchState.turnOrder) && currentMatchState.turnOrder.length)
+                ? currentMatchState.turnOrder
+                : getTurnPlayers();
+            const idx = turnOrder.indexOf(currentTurnId);
+            const nextIdx = idx === -1 ? 0 : (idx + 1) % turnOrder.length;
+            const nextPlayer = turnOrder[nextIdx];
+
+            updateMatchState({
+                currentTurn: nextPlayer
+            });
+        }
+
+        function calculateScore() {
+            let s = 0;
+            for (let i = 1; i <= 9; i++) {
+                if (!shutTiles.includes(i)) s += i;
+            }
+            return s;
+        }
+
+        async function updatePlayerScore(score) {
+            const myUUID = getPlayerUUID();
+            await db.ref(`lobbies/${lobbyId}/players/${myUUID}/score`).set(score);
+        }
+
+        function syncFromFirebase(matchState) {
+            // Handle incoming game state updates
+            currentMatchState = matchState;
+            if (matchState.currentTurn) {
+                currentTurnId = matchState.currentTurn;
+                const myUUID = getPlayerUUID();
+                isMyTurn = currentTurnId === myUUID;
+                updateTurnIndicators();
+
+                if (isMyTurn) {
+                    if (gameState === 'IDLE') {
+                        gameState = 'WAITING';
+                    }
+                    document.getElementById('btn-roll').disabled = false;
+                } else {
+                    gameState = 'IDLE';
+                    document.getElementById('btn-roll').disabled = true;
+                    document.getElementById('btn-confirm').style.display = 'none';
+                }
+
+                // If it's a bot's turn, host client plays it
+                if (isBotPlayer(currentTurnId) && isHostClient()) {
+                    if (!botTurnInProgress) {
+                        botTurnInProgress = true;
+                        runBotTurn(currentTurnId).finally(() => {
+                            botTurnInProgress = false;
+                        });
+                    }
+                }
+            }
+
+            if (matchState.lastMove) {
+                // Update from other player's moves
+                console.log('Received move:', matchState.lastMove);
+            }
+        }
+
+        function returnToLobby() {
+            document.getElementById('warningModal').classList.add('active');
+        }
+
+        function confirmReturn() {
+            leaveLobby().then(() => {
+                if (lobbyRef) {
+                    offLobbyUpdate(lobbyRef);
+                }
+                window.location.href = '../../lobby.html';
+            });
+        }
+
+        function cancelReturn() {
+            document.getElementById('warningModal').classList.remove('active');
+        }
+
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            toast.textContent = msg;
+            toast.classList.add('show');
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3000);
+        }
+
+        function showWarning(msg, callback) {
+            const modal = document.getElementById('warningModal');
+            document.getElementById('warningMessage').textContent = msg;
+            modal.classList.add('active');
+            if (callback) {
+                window.warningCallback = callback;
+            }
+        }
+
+        function getAvailableTiles() {
+            return tiles.filter(t => !shutTiles.includes(t));
+        }
+
+        function findTileCombo(values, target, startIndex = 0, combo = []) {
+            if (target === 0) return combo;
+            for (let i = startIndex; i < values.length; i++) {
+                const val = values[i];
+                if (val > target) continue;
+                const result = findTileCombo(values, target - val, i + 1, [...combo, val]);
+                if (result) return result;
+            }
+            return null;
+        }
+
+        async function updateBotScore(botId, score) {
+            if (!db || !lobbyId) return;
+            await db.ref(`lobbies/${lobbyId}/players/${botId}/score`).set(score);
+        }
+
+        async function runBotTurn(botId) {
+            const available = getAvailableTiles();
+            if (!available.length) {
+                advanceTurn();
+                return;
+            }
+
+            // Roll dice
+            const d1 = Math.floor(Math.random() * 6) + 1;
+            const d2 = Math.floor(Math.random() * 6) + 1;
+            const sum = d1 + d2;
+
+            // Find a valid combo
+            const combo = findTileCombo(available, sum) || [];
+
+            // Apply tiles shut
+            if (combo.length) {
+                shutTiles.push(...combo);
+                combo.forEach(val => {
+                    const tileEl = document.getElementById('tiles-container').children[val - 1];
+                    if (tileEl) {
+                        tileEl.classList.remove('selected');
+                        tileEl.classList.add('shut');
+                    }
+                });
+            }
+
+            // Sync bot move
+            syncGameMove({
+                type: 'bot_turn',
+                botId: botId,
+                d1,
+                d2,
+                sum,
+                shutTiles: shutTiles
+            });
+
+            // Update bot score and end turn
+            const score = calculateScore();
+            await updateBotScore(botId, score);
+            advanceTurn();
+        }
+    </script>
+</body>
+</html>

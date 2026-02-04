@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dice Poker - Multiplayer</title>
+    <style>
+        :root {
+            --bg-dark: #1a1a1a;
+            --table-color: #35654d;
+            --accent-gold: #ffbd2e;
+            --accent-blue: #3498db;
+            --accent-red: #e74c3c;
+            --text-main: #ffffff;
+            --text-muted: #aab7b8;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background: linear-gradient(135deg, var(--bg-dark) 0%, #2d1e1e 100%);
+            color: var(--text-main);
+            font-family: 'Segoe UI', sans-serif;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        header {
+            background: rgba(0,0,0,0.8);
+            padding: 15px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid var(--accent-gold);
+        }
+
+        .brand {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: var(--accent-gold);
+        }
+
+        .header-right {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary { background: var(--accent-gold); color: #000; }
+        .btn-primary:hover { background: #ffca57; transform: translateY(-2px); }
+        .btn-secondary { background: var(--accent-blue); color: #fff; }
+        .btn-secondary:hover { background: #5dade2; }
+        .btn-danger { background: var(--accent-red); color: #fff; }
+        .btn:disabled { background: #555; cursor: not-allowed; opacity: 0.5; }
+
+        main {
+            flex: 1;
+            display: flex;
+            gap: 20px;
+            padding: 20px;
+        }
+
+        .game-area {
+            flex: 1;
+            background: radial-gradient(circle, var(--table-color) 0%, #1e3b2d 100%);
+            border: 20px solid #3e2723;
+            border-radius: 20px;
+            padding: 40px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        .sidebar {
+            width: 300px;
+            background: rgba(0,0,0,0.4);
+            border-radius: 15px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .section {
+            background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 10px;
+            padding: 15px;
+        }
+
+        .section h3 {
+            color: var(--accent-gold);
+            margin-bottom: 15px;
+            font-size: 1.1rem;
+        }
+
+        .player-card {
+            background: rgba(0,0,0,0.3);
+            border: 2px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            transition: all 0.2s;
+        }
+
+        .player-card.active-turn {
+            border-color: var(--accent-gold);
+            background: rgba(255,189,46,0.1);
+        }
+
+        .player-card.current-player {
+            border-color: var(--accent-blue);
+        }
+
+        .player-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: var(--accent-blue);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            flex-shrink: 0;
+        }
+
+        .player-avatar.bot { background: #27ae60; }
+
+        .player-info {
+            flex: 1;
+        }
+
+        .player-name {
+            font-weight: bold;
+            margin-bottom: 4px;
+        }
+
+        .player-score {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        .turn-indicator {
+            color: var(--accent-gold);
+            font-size: 1.5rem;
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .ready-badge {
+            background: rgba(39,174,96,0.3);
+            color: #27ae60;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: bold;
+        }
+
+        .dice-container {
+            display: flex;
+            gap: 20px;
+            margin: 30px 0;
+        }
+
+        .die {
+            width: 80px;
+            height: 80px;
+            background: white;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: #000;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .die:hover { transform: translateY(-5px); }
+        .die.held { background: var(--accent-gold); }
+
+        .game-status {
+            font-size: 1.3rem;
+            margin: 20px 0;
+            color: var(--accent-gold);
+            text-align: center;
+        }
+
+        #game-notification {
+            position: fixed;
+            top: 80px;
+            right: 20px;
+            padding: 15px 25px;
+            background: rgba(0,0,0,0.9);
+            border: 2px solid var(--accent-gold);
+            border-radius: 8px;
+            color: white;
+            font-size: 1rem;
+            z-index: 1000;
+            display: none;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from { transform: translateX(400px); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        .waiting-screen {
+            text-align: center;
+        }
+
+        .waiting-screen h2 {
+            color: var(--accent-gold);
+            margin-bottom: 20px;
+        }
+
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="brand">🎲 Dice Poker - Multiplayer</div>
+        <div class="header-right">
+            <button class="btn btn-danger" onclick="returnToLobby()">Leave Game</button>
+        </div>
+    </header>
+
+    <main>
+        <div class="game-area">
+            <div id="waiting-screen" class="waiting-screen">
+                <h2>Waiting for Players...</h2>
+                <p id="waiting-message">Get ready!</p>
+                <button id="ready-btn" class="btn btn-primary" onclick="onReadyClick()">
+                    I'm Ready
+                </button>
+            </div>
+
+            <div id="game-screen" class="hidden">
+                <div class="game-status" id="game-status">Your turn!</div>
+                
+                <div class="dice-container" id="dice-container">
+                    <!-- Dice will be generated here -->
+                </div>
+
+                <div style="display: flex; gap: 15px; margin-top: 30px;">
+                    <button id="roll-btn" class="btn btn-primary" onclick="rollDice()">
+                        Roll Dice
+                    </button>
+                    <button id="end-turn-btn" class="btn btn-secondary" onclick="endTurn()" disabled>
+                        End Turn
+                    </button>
+                </div>
+
+                <div style="margin-top: 20px; color: var(--text-muted);">
+                    <p>Rolls left: <span id="rolls-left">3</span></p>
+                    <p>Current Score: <span id="current-score">0</span></p>
+                </div>
+            </div>
+        </div>
+
+        <div class="sidebar">
+            <div class="section">
+                <h3>Players</h3>
+                <div id="player-list-container">
+                    <!-- Players will be rendered here -->
+                </div>
+            </div>
+
+            <div class="section">
+                <h3>Game Info</h3>
+                <p style="color: var(--text-muted); font-size: 0.9rem;">
+                    Roll dice to make poker hands!<br><br>
+                    Click dice to hold them.<br>
+                    You get 3 rolls per turn.
+                </p>
+            </div>
+        </div>
+    </main>
+
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+
+    <!-- Firebase Config -->
+    <script src="../../js/firebaseConfig.js"></script>
+
+    <!-- Multiplayer Game Utilities -->
+    <script src="../../js/multiplayerGame.js"></script>
+
+    <script>
+        // Game state
+        const mpGame = new MultiplayerGame('DicePoker');
+        let isSinglePlayer = false;
+        let dice = [0, 0, 0, 0, 0];
+        let heldDice = [false, false, false, false, false];
+        let rollsLeft = 3;
+        let currentScore = 0;
+
+        // Initialize game
+        window.addEventListener('load', async () => {
+            // Initialize Firebase
+            if (typeof initializeFirebase === 'function') {
+                initializeFirebase();
+            }
+
+            // Initialize multiplayer
+            const mpInitialized = await mpGame.initialize();
+            isSinglePlayer = !mpInitialized;
+
+            if (mpInitialized) {
+                setupMultiplayerCallbacks();
+                console.log('Multiplayer mode active');
+            } else {
+                console.log('Single player mode - starting immediately');
+                startGame();
+            }
+
+            // Render initial dice
+            renderDice();
+        });
+
+        // Set up multiplayer event callbacks
+        function setupMultiplayerCallbacks() {
+            mpGame.on('onPlayersUpdate', (players) => {
+                console.log('Players updated:', players);
+                mpGame.renderPlayerList('player-list-container');
+                updateWaitingMessage();
+            });
+
+            mpGame.on('onGameStateUpdate', (state) => {
+                console.log('Game state updated:', state);
+                
+                if (state.status === 'playing') {
+                    document.getElementById('waiting-screen').classList.add('hidden');
+                    document.getElementById('game-screen').classList.remove('hidden');
+                }
+
+                // Sync game state from other players
+                if (state.lastMove && state.lastMove.playerId !== mpGame.playerUUID) {
+                    handleRemoteMove(state.lastMove);
+                }
+            });
+
+            mpGame.on('onTurnChange', (currentPlayerId, isMyTurn) => {
+                console.log('Turn changed:', currentPlayerId, isMyTurn);
+                mpGame.showTurnNotification();
+                
+                if (isMyTurn) {
+                    enablePlayerControls();
+                    resetTurn();
+                } else {
+                    disablePlayerControls();
+                }
+            });
+
+            mpGame.on('onGameEnd', (winnerId, finalScores) => {
+                console.log('Game ended. Winner:', winnerId);
+                showGameOver(winnerId, finalScores);
+            });
+        }
+
+        // Update waiting message
+        function updateWaitingMessage() {
+            const playerCount = Object.keys(mpGame.players).length;
+            const readyCount = Object.values(mpGame.gameState.playerStates || {}).filter(p => p.ready).length;
+            
+            document.getElementById('waiting-message').textContent = 
+                `${readyCount}/${playerCount} players ready`;
+        }
+
+        // Ready button click
+        async function onReadyClick() {
+            if (isSinglePlayer) {
+                startGame();
+                return;
+            }
+
+            await mpGame.setReady(true);
+            document.getElementById('ready-btn').disabled = true;
+            document.getElementById('ready-btn').textContent = '✓ Ready!';
+
+            updateWaitingMessage();
+
+            if (mpGame.allPlayersReady()) {
+                await mpGame.startGame();
+                startGame();
+            }
+        }
+
+        // Start the game
+        function startGame() {
+            document.getElementById('waiting-screen').classList.add('hidden');
+            document.getElementById('game-screen').classList.remove('hidden');
+            
+            if (!isSinglePlayer) {
+                mpGame.showTurnNotification();
+                if (!mpGame.isMyTurn) {
+                    disablePlayerControls();
+                }
+            }
+        }
+
+        // Render dice
+        function renderDice() {
+            const container = document.getElementById('dice-container');
+            container.innerHTML = '';
+
+            dice.forEach((value, index) => {
+                const dieEl = document.createElement('div');
+                dieEl.className = `die ${heldDice[index] ? 'held' : ''}`;
+                dieEl.textContent = value || '?';
+                dieEl.onclick = () => toggleHold(index);
+                container.appendChild(dieEl);
+            });
+        }
+
+        // Toggle hold on a die
+        function toggleHold(index) {
+            if (rollsLeft === 3 || dice[index] === 0) return; // Can't hold before first roll
+            heldDice[index] = !heldDice[index];
+            renderDice();
+        }
+
+        // Roll dice
+        async function rollDice() {
+            if (rollsLeft === 0) return;
+            if (!isSinglePlayer && !mpGame.isMyTurn) {
+                alert("It's not your turn!");
+                return;
+            }
+
+            rollsLeft--;
+            document.getElementById('rolls-left').textContent = rollsLeft;
+
+            // Roll non-held dice
+            dice = dice.map((val, i) => heldDice[i] ? val : Math.floor(Math.random() * 6) + 1);
+            
+            renderDice();
+            calculateScore();
+
+            // Broadcast move if multiplayer
+            if (!isSinglePlayer) {
+                await mpGame.broadcastMove({
+                    action: 'roll',
+                    dice: dice,
+                    held: heldDice,
+                    rollsLeft: rollsLeft
+                });
+            }
+
+            if (rollsLeft === 0) {
+                document.getElementById('roll-btn').disabled = true;
+                document.getElementById('end-turn-btn').disabled = false;
+            }
+        }
+
+        // Calculate score from current dice
+        function calculateScore() {
+            // Simple scoring: sum of all dice
+            // You can implement poker hand scoring here
+            currentScore = dice.reduce((a, b) => a + b, 0);
+            document.getElementById('current-score').textContent = currentScore;
+        }
+
+        // End turn
+        async function endTurn() {
+            // Update final score
+            if (!isSinglePlayer) {
+                await mpGame.updateScore(currentScore);
+                await mpGame.endTurn();
+            }
+
+            disablePlayerControls();
+            
+            // Check for game end (example: after 3 rounds)
+            if (mpGame.gameState.round >= 3) {
+                const winnerId = findWinner();
+                await mpGame.endGame(winnerId, collectScores());
+            }
+        }
+
+        // Reset turn
+        function resetTurn() {
+            rollsLeft = 3;
+            dice = [0, 0, 0, 0, 0];
+            heldDice = [false, false, false, false, false];
+            currentScore = 0;
+            
+            document.getElementById('rolls-left').textContent = rollsLeft;
+            document.getElementById('current-score').textContent = currentScore;
+            document.getElementById('roll-btn').disabled = false;
+            document.getElementById('end-turn-btn').disabled = true;
+            
+            renderDice();
+        }
+
+        // Enable/disable controls
+        function enablePlayerControls() {
+            document.getElementById('roll-btn').disabled = false;
+            document.getElementById('game-status').textContent = 'Your turn!';
+        }
+
+        function disablePlayerControls() {
+            document.getElementById('roll-btn').disabled = true;
+            document.getElementById('end-turn-btn').disabled = true;
+            const currentPlayer = mpGame.getPlayer(mpGame.currentTurn);
+            const playerName = currentPlayer ? currentPlayer.name : 'Other player';
+            document.getElementById('game-status').textContent = `${playerName}'s turn`;
+        }
+
+        // Handle moves from other players
+        function handleRemoteMove(move) {
+            console.log('Remote move:', move);
+            // Update UI to show what other player did
+            mpGame.showNotification(`${mpGame.getPlayer(move.playerId)?.name} rolled!`, 'info');
+        }
+
+        // Find winner
+        function findWinner() {
+            let maxScore = 0;
+            let winnerId = null;
+
+            Object.entries(mpGame.gameState.playerStates).forEach(([playerId, state]) => {
+                if (state.score > maxScore) {
+                    maxScore = state.score;
+                    winnerId = playerId;
+                }
+            });
+
+            return winnerId;
+        }
+
+        // Collect all scores
+        function collectScores() {
+            const scores = {};
+            Object.entries(mpGame.gameState.playerStates).forEach(([playerId, state]) => {
+                scores[playerId] = state.score;
+            });
+            return scores;
+        }
+
+        // Show game over
+        function showGameOver(winnerId, scores) {
+            const winner = mpGame.getPlayer(winnerId);
+            const winnerName = winner ? winner.name : 'Unknown';
+            
+            alert(`Game Over!\n\nWinner: ${winnerName}\n\nFinal Scores:\n${
+                Object.entries(scores).map(([id, score]) => 
+                    `${mpGame.getPlayer(id)?.name}: ${score}`
+                ).join('\n')
+            }`);
+        }
+
+        // Return to lobby
+        function returnToLobby() {
+            if (confirm('Are you sure you want to leave the game?')) {
+                if (!isSinglePlayer) {
+                    mpGame.cleanup();
+                    leaveLobby();
+                }
+                window.location.href = '../../lobby.html';
+            }
+        }
+
+        // Clean up on page unload
+        window.addEventListener('beforeunload', () => {
+            if (!isSinglePlayer) {
+                mpGame.cleanup();
+            }
+        });
+    </script>
+</body>
+</html>

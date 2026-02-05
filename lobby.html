@@ -377,7 +377,9 @@
                 </div>
             </div>
 
-            <div class="status-message hidden" id="privateStatus">
+            <div class="status-message hidden" id="privateStatusMessage"></div>
+
+            <div class="hidden" id="privateStatus">
                 <strong>Private Match Created!</strong>
                 <p style="margin-top: 10px;">Share this key with your friend:</p>
                 <div class="copy-key-container" style="margin-top: 10px;">
@@ -488,18 +490,22 @@
         async function findPublicMatch() {
             const gameSelect = document.getElementById('gameSelect');
             const usernameInput = document.getElementById('usernameInput');
-            const gameType = gameSelect.value;
+            const gameType = gameSelect.value ? gameSelect.value.trim() : '';
             const username = usernameInput.value.trim();
 
-            if (!gameType) {
+            // Validate ALL fields BEFORE any Firebase operations
+            if (!gameType || gameType === '') {
                 showStatus('publicStatus', 'Please select a game', 'error');
                 return;
             }
 
-            if (!username) {
+            if (!username || username === '') {
                 showStatus('publicStatus', 'Please enter your username', 'error');
                 return;
             }
+
+            // Store username for the game to access
+            sessionStorage.setItem('playerUsername', username);
 
             setButtonLoading('publicMatchBtn', true);
             showStatus('publicStatus', 'Searching for match...', 'waiting');
@@ -541,23 +547,29 @@
         async function createPrivateMatch() {
             const gameSelect = document.getElementById('gameSelect');
             const usernameInput = document.getElementById('usernameInput');
-            const gameType = gameSelect.value;
+            const gameType = gameSelect.value ? gameSelect.value.trim() : '';
             const username = usernameInput.value.trim();
 
-            if (!gameType) {
-                showStatus('privateStatus', 'Please select a game', 'error');
+            // Validate ALL fields BEFORE any Firebase operations
+            if (!gameType || gameType === '') {
+                showStatus('privateStatusMessage', 'Please select a game', 'error');
                 return;
             }
 
-            if (!username) {
-                showStatus('privateStatus', 'Please enter your username', 'error');
+            if (!username || username === '') {
+                showStatus('privateStatusMessage', 'Please enter your username', 'error');
                 return;
             }
+
+            // Store username for the game to access
+            sessionStorage.setItem('playerUsername', username);
 
             setButtonLoading('createPrivateBtn', true);
-            console.log('Creating private lobby for game:', gameType);
+            showStatus('privateStatusMessage', ''); // Clear any previous messages
+            console.log('Creating private lobby for game:', gameType, 'with username:', username);
 
             try {
+                // Only attempt Firebase operations after ALL validations pass
                 const result = await createLobby(gameType, true);
                 console.log('Lobby created:', result);
                 
@@ -575,11 +587,11 @@
                     console.log('Private lobby created with key:', result.lobbyKey);
                 } else {
                     console.error('Invalid lobby result:', result);
-                    showStatus('privateStatus', 'Failed to create private match - missing key or ID', 'error');
+                    showStatus('privateStatusMessage', 'Failed to create private match - missing key or ID', 'error');
                 }
             } catch (error) {
                 console.error("Error creating private match:", error);
-                showStatus('privateStatus', 'Error: ' + error.message, 'error');
+                showStatus('privateStatusMessage', 'Error: ' + error.message, 'error');
             } finally {
                 setButtonLoading('createPrivateBtn', false);
             }
@@ -588,7 +600,18 @@
         function copyKeyToClipboard() {
             const key = document.getElementById('keyDisplay').textContent;
             navigator.clipboard.writeText(key).then(() => {
-                showStatus('privateStatus', '✓ Key copied to clipboard!');
+                showStatus('privateStatusMessage', '✓ Key copied to clipboard!', 'info');
+                // Auto-hide the message after 2 seconds
+                setTimeout(() => {
+                    showStatus('privateStatusMessage', '');
+                }, 2000);
+            }).catch((err) => {
+                console.error('Failed to copy:', err);
+                showStatus('privateStatusMessage', 'Failed to copy key', 'error');
+                // Auto-hide the error message after 3 seconds
+                setTimeout(() => {
+                    showStatus('privateStatusMessage', '');
+                }, 3000);
             });
         }
 
@@ -597,12 +620,13 @@
             const usernameInput = document.getElementById('usernameInputJoin');
             const username = usernameInput.value.trim();
 
-            if (!key) {
+            // Validate ALL fields BEFORE any Firebase operations
+            if (!key || key === '') {
                 showStatus('joinStatus', 'Enter a lobby key', 'error');
                 return;
             }
 
-            if (!username) {
+            if (!username || username === '') {
                 showStatus('joinStatus', 'Please enter your username', 'error');
                 return;
             }
@@ -610,9 +634,10 @@
             setButtonLoading('joinKeyBtn', true);
 
             try {
-                const lobby = await joinLobby(key, username);
-                if (lobby) {
-                    window.currentLobbyId = lobby;
+                const result = await joinLobby(key, username);
+                const lobbyId = result.lobbyId || result;
+                if (lobbyId) {
+                    window.currentLobbyId = lobbyId;
                     loadLobbyUI(window.currentLobbyId);
                     showStatus('joinStatus', '✓ Joined lobby!');
                     document.getElementById('keyInput').value = '';
@@ -735,7 +760,14 @@
 
             const gameUrl = gameMap[gameType];
             if (gameUrl) {
-                console.log('Starting game:', gameType, 'with lobby:', window.currentLobbyId);
+                // Get the current username and store it so the game page can access it
+                const usernameInput = document.getElementById('usernameInput');
+                const username = usernameInput ? usernameInput.value.trim() : '';
+                if (username) {
+                    sessionStorage.setItem('playerUsername', username);
+                }
+                
+                console.log('Starting game:', gameType, 'with lobby:', window.currentLobbyId, 'username:', username);
                 window.location.href = gameUrl + '?lobbyId=' + window.currentLobbyId;
             } else {
                 showStatus('joinStatus', 'Game not found: ' + gameType, 'error');
@@ -794,6 +826,10 @@
         // Utility functions
         function showStatus(elementId, message, type = 'info') {
             const el = document.getElementById(elementId);
+            if (!el) {
+                console.warn('Status element not found:', elementId);
+                return;
+            }
             if (message) {
                 el.textContent = message;
                 el.className = `status-message ${type}`;

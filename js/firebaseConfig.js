@@ -53,6 +53,45 @@ function initializeFirebase() {
   }
 }
 
+// Async version - waits for auth to complete
+async function ensureFirebaseInitialized() {
+  return new Promise((resolve) => {
+    // If Firebase is already fully initialized, resolve immediately
+    if (db && auth && playerUUID) {
+      console.log('Firebase already initialized');
+      resolve(true);
+      return;
+    }
+
+    console.log('Waiting for Firebase initialization...');
+    
+    // Call initializeFirebase if not done
+    if (!db || !auth) {
+      initializeFirebase();
+    }
+
+    // Wait for playerUUID and Firebase services to be set by the auth flow
+    let attempts = 0;
+    const checkInterval = setInterval(() => {
+      if (db && auth && playerUUID) {
+        clearInterval(checkInterval);
+        console.log('Firebase initialization complete');
+        resolve(true);
+      } else if (attempts++ > 100) { // 10 seconds timeout (100 * 100ms)
+        clearInterval(checkInterval);
+        console.warn('Firebase initialization timeout');
+        // Generate playerUUID as fallback
+        playerUUID = sessionStorage.getItem('playerUUID') || generateUUID();
+        sessionStorage.setItem('playerUUID', playerUUID);
+        if (!db) {
+          console.error('Firebase db not initialized after timeout');
+        }
+        resolve(!!db && !!auth); // Resolve with success if db and auth exist
+      }
+    }, 100);
+  });
+}
+
 // Generate UUID for player (persists for this session)
 function generateUUID() {
   // simple RFC4122 v4-ish
@@ -125,23 +164,40 @@ async function joinLobby(lobbyIdOrKey, username = null) {
 
   if (!lobbyId) throw new Error('Invalid lobby identifier');
 
-  const playerId = sessionStorage.getItem('playerUUID') || generateUUID();
-  sessionStorage.setItem('playerUUID', playerId);
+  // Ensure playerUUID is set globally
+  if (!playerUUID) {
+    playerUUID = sessionStorage.getItem('playerUUID');
+  }
+  if (!playerUUID) {
+    playerUUID = generateUUID();
+    sessionStorage.setItem('playerUUID', playerUUID);
+  }
+
+  const playerId = playerUUID;
 
   const playerRef = db.ref(`lobbies/${lobbyId}/players/${playerId}`);
-  const playerName = username || `Player-${playerId.slice(0,4)}`;
+  
+  // Check if player already exists to preserve their name
+  const existingSnapshot = await playerRef.once('value');
+  const existingPlayer = existingSnapshot.val();
+  const existingName = existingPlayer && existingPlayer.name ? existingPlayer.name : null;
+  
+  // Use existing name if available, otherwise use provided username or generate default
+  const playerName = existingName || username || `Player-${playerId.slice(0,4)}`;
+  
   await playerRef.set({
     id: playerId,
-    joinedAt: firebase.database.ServerValue.TIMESTAMP,
+    joinedAt: existingPlayer && existingPlayer.joinedAt ? existingPlayer.joinedAt : firebase.database.ServerValue.TIMESTAMP,
         name: playerName,
-        score: 0,
-        totalWins: 0,
-        isBot: false
+        score: existingPlayer && existingPlayer.score !== undefined ? existingPlayer.score : 0,
+        totalWins: existingPlayer && existingPlayer.totalWins ? existingPlayer.totalWins : 0,
+        isBot: false,
+        chips: existingPlayer && existingPlayer.chips !== undefined ? existingPlayer.chips : 1000
   });
 
   window.currentLobbyId = lobbyId;
   sessionStorage.setItem('currentLobbyId', lobbyId);
-  return lobbyId;
+  return { lobbyId, playerId };
 }
 
 // Find a public lobby with waiting players (random matchmaking)
@@ -303,6 +359,7 @@ async function updatePlayerScore(score, lobbyId = null) {
 }
 
 // Update match state (game-specific state)
+// DEPRECATED: Use updateGameSpecificState instead for new implementations
 async function updateMatchState(newState, lobbyId = null) {
     if (!db) {
         console.error("Firebase not initialized");
@@ -317,6 +374,65 @@ async function updateMatchState(newState, lobbyId = null) {
         return true;
     } catch (error) {
         console.error("Error updating match state:", error);
+        return false;
+    }
+}
+
+// Update game-specific state (namespaced to avoid conflicts between games)
+async function updateGameSpecificState(gameType, stateUpdates, lobbyId = null) {
+    if (!db) {
+        console.error("Firebase not initialized");
+        return false;
+    }
+
+    const id = lobbyId || window.currentLobbyId;
+    if (!id) return false;
+
+    try {
+        const normalizedGameType = gameType.toLowerCase().replace(/[^a-z0-9]/g, '');
+        await db.ref(`lobbies/${id}/gameStates/${normalizedGameType}`).update(stateUpdates);
+        return true;
+    } catch (error) {
+        console.error("Error updating game-specific state:", error);
+        return false;
+    }
+}
+
+// Clear game-specific state for a game
+async function clearGameSpecificState(gameType, lobbyId = null) {
+    if (!db) {
+        console.error("Firebase not initialized");
+        return false;
+    }
+
+    const id = lobbyId || window.currentLobbyId;
+    if (!id) return false;
+
+    try {
+        const normalizedGameType = gameType.toLowerCase().replace(/[^a-z0-9]/g, '');
+        await db.ref(`lobbies/${id}/gameStates/${normalizedGameType}`).remove();
+        return true;
+    } catch (error) {
+        console.error("Error clearing game-specific state:", error);
+        return false;
+    }
+}
+
+// Update player status (inLobby, inGame, etc.)
+async function updatePlayerStatus(status, lobbyId = null) {
+    if (!db) {
+        console.error("Firebase not initialized");
+        return false;
+    }
+
+    const id = lobbyId || window.currentLobbyId;
+    if (!id || !playerUUID) return false;
+
+    try {
+        await db.ref(`lobbies/${id}/players/${playerUUID}/status`).set(status);
+        return true;
+    } catch (error) {
+        console.error("Error updating player status:", error);
         return false;
     }
 }
@@ -413,5 +529,25 @@ async function incrementPlayerWins(lobbyId, playerId) {
     } catch (error) {
         console.error("Error incrementing player wins:", error);
         return false;
+    }
+}
+
+// Auto-initialize Firebase when this script loads
+if (typeof window !== 'undefined') {
+    // Wait for Firebase SDK to load, then initialize
+    if (typeof firebase !== 'undefined') {
+        initializeFirebase();
+    } else {
+        // If Firebase SDK not loaded yet, wait for it
+        document.addEventListener('readystatechange', () => {
+            if (document.readyState === 'loading' && typeof firebase !== 'undefined') {
+                initializeFirebase();
+            }
+        });
+        window.addEventListener('load', () => {
+            if (typeof firebase !== 'undefined' && !db) {
+                initializeFirebase();
+            }
+        });
     }
 }

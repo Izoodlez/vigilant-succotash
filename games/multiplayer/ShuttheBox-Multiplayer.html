@@ -726,7 +726,7 @@
             </div>
             <div class="scoreboard-buttons">
                 <button class="btn-roll" onclick="returnToLobbyFromScoreboard()">Return to Lobby</button>
-                <button class="btn-confirm" onclick="playAgain()">Play Again</button>
+                <button class="btn-confirm" onclick="playAgain()">New Round</button>
             </div>
         </div>
     </div>
@@ -1428,39 +1428,59 @@
             window.location.href = '../../lobby.html';
         }
 
-        function playAgain() {
+        async function playAgain() {
             document.getElementById('scoreboardModal').classList.remove('active');
-            
-            // Reset game state
+
+            // Reset local game state
             shutTiles = [];
             diceSum = 0;
             selectedTiles = [];
             gameState = 'WAITING';
             playerTurnsCompleted = {};
             scoreboardShown = false;
-            
+
+            // Reset dice display
+            document.getElementById('target-display').textContent = '-';
+            document.getElementById('btn-roll').style.display = 'block';
+            document.getElementById('btn-roll').disabled = false;
+            document.getElementById('btn-confirm').style.display = 'none';
+
             // Re-initialize tiles
             initTiles();
-            
+
+            // Reset all player scores to 0 in Firebase
+            const updates = {};
+            Object.keys(lobbyPlayers).forEach(playerId => {
+                updates[`lobbies/${lobbyId}/players/${playerId}/score`] = 0;
+                lobbyPlayers[playerId].score = 0;
+            });
+
+            // Update player HUD to show reset scores
+            updatePlayerHUD();
+
+            // Apply score resets to Firebase
+            await db.ref().update(updates);
+
             // Reset match state
             const turnPlayers = getTurnPlayers();
             turnPlayers.forEach(playerId => {
                 playerTurnsCompleted[playerId] = 0;
             });
-            
-            // Start new game
-            updateGameSpecificState(GAME_TYPE, {
+
+            // Clear and restart game state in Firebase
+            await updateGameSpecificState(GAME_TYPE, {
                 status: 'playing',
                 turnOrder: turnPlayers,
                 currentTurn: turnPlayers[0],
-                round: (currentMatchState.round || 1) + 1,
+                round: (currentMatchState && currentMatchState.round ? currentMatchState.round + 1 : 1),
                 gameOver: false,
                 winner: null,
                 rankings: null,
-                completedTurns: {}
+                completedTurns: {},
+                lastMove: null
             });
-            
-            showToast('New game started!');
+
+            showToast('New round started!');
         }
     </script>
 </body>

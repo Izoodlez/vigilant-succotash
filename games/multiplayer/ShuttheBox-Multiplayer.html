@@ -1083,7 +1083,7 @@
             if (!isMyTurn) return;
             const score = calculateScore();
             updatePlayerScore(score);
-            
+
             // Increment turn completion for current player
             const currentPlayerId = getPlayerUUID();
             playerTurnsCompleted[currentPlayerId] = (playerTurnsCompleted[currentPlayerId] || 0) + 1;
@@ -1092,7 +1092,7 @@
                 [currentPlayerId]: playerTurnsCompleted[currentPlayerId]
             };
             updateGameSpecificState(GAME_TYPE, { completedTurns });
-            
+
             syncGameMove({
                 type: 'turn_end',
                 finalScore: score
@@ -1100,22 +1100,8 @@
             gameState = 'IDLE';
             showToast('Turn ended. Waiting for next player...');
 
-            // Check if all players have completed 1 turn
-            const turnOrder = (currentMatchState && Array.isArray(currentMatchState.turnOrder) && currentMatchState.turnOrder.length)
-                ? currentMatchState.turnOrder
-                : getTurnPlayers();
-            
-            const allCompleted = turnOrder.every(playerId => (completedTurns[playerId] || 0) >= 1);
-            
-            if (allCompleted) {
-                if (isHostClient()) {
-                    finishGame();
-                } else {
-                    showToast('Waiting for host to finalize results...');
-                }
-            } else {
-                advanceTurn();
-            }
+            // Always advance turn - advanceTurn() will check if game should finish
+            advanceTurn();
         }
 
         function advanceTurn() {
@@ -1126,6 +1112,22 @@
             const turnOrder = (currentMatchState && Array.isArray(currentMatchState.turnOrder) && currentMatchState.turnOrder.length)
                 ? currentMatchState.turnOrder
                 : getTurnPlayers();
+
+            // Check if all players have completed their turn
+            const completedTurns = (currentMatchState && currentMatchState.completedTurns) || playerTurnsCompleted;
+            const allCompleted = turnOrder.every(playerId => (completedTurns[playerId] || 0) >= 1);
+
+            if (allCompleted) {
+                // Game is complete - only host should finalize
+                if (isHostClient()) {
+                    finishGame();
+                } else {
+                    showToast('Waiting for host to finalize results...');
+                }
+                return;
+            }
+
+            // Game not complete - advance to next player
             const idx = turnOrder.indexOf(currentTurnId);
             const nextIdx = idx === -1 ? 0 : (idx + 1) % turnOrder.length;
             const nextPlayer = turnOrder[nextIdx];
@@ -1307,7 +1309,7 @@
             // Update bot score and end turn
             const score = calculateScore();
             await updateBotScore(botId, score);
-            
+
             // Increment turn completion for bot
             playerTurnsCompleted[botId] = (playerTurnsCompleted[botId] || 0) + 1;
             const completedTurns = {
@@ -1315,21 +1317,9 @@
                 [botId]: playerTurnsCompleted[botId]
             };
             updateGameSpecificState(GAME_TYPE, { completedTurns });
-            
-            // Check if all players have completed 1 turn
-            const turnOrder = (currentMatchState && Array.isArray(currentMatchState.turnOrder) && currentMatchState.turnOrder.length)
-                ? currentMatchState.turnOrder
-                : getTurnPlayers();
-            
-            const allCompleted = turnOrder.every(playerId => (completedTurns[playerId] || 0) >= 1);
-            
-            if (allCompleted) {
-                if (isHostClient()) {
-                    finishGame();
-                }
-            } else {
-                advanceTurn();
-            }
+
+            // Always advance turn - advanceTurn() will check if game should finish
+            advanceTurn();
         }
 
         function finishGame() {

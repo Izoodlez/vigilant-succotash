@@ -51,6 +51,65 @@
             font-size: 0.9rem;
         }
 
+        nav ul {
+            list-style-type: none;
+            padding: 0;
+            margin: 10px 0 0 0;
+            display: flex;
+            justify-content: center;
+        }
+
+        nav ul li {
+            margin: 0 15px;
+        }
+
+        nav ul li a {
+            color: white;
+            text-decoration: none;
+            padding: 5px 10px;
+            display: block;
+        }
+
+        nav ul li a:hover {
+            box-shadow: 0 0 5px lime;
+            border-radius: 10px;
+            background-color: #444;
+        }
+
+        nav ul li.dropdown {
+            position: relative;
+        }
+
+        nav ul li .dropdown-content {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            background-color: #222;
+            min-width: 160px;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.2);
+            padding: 10px;
+            margin: 0;
+            list-style: none;
+            z-index: 1000;
+            border-radius: 10px;
+        }
+
+        nav ul li .dropdown-content li a {
+            color: white;
+            padding: 10px 12px;
+            display: block;
+            text-decoration: none;
+        }
+
+        nav ul li .dropdown-content li a:hover {
+            background-color: #444;
+        }
+
+        nav ul li.dropdown:hover .dropdown-content {
+            display: block;
+        }
+
         main {
             flex: 1;
             display: flex;
@@ -341,6 +400,22 @@
     <header>
         <h1><a href="index.html" style="color: var(--accent-gold); text-decoration: none;">🎲 ZOODS ROOM 🎲</a></h1>
         <p>Multiplayer Lobby System</p>
+        <nav>
+            <ul>
+                <li><a href="index.html">Home</a></li>
+                <li class="dropdown">
+                    <a href="games.html" class="dropbtn">Games</a>
+                    <ul class="dropdown-content">
+                        <li><a href="games.html#card-games">Card Games</a></li>
+                        <li><a href="games.html#board-games">Board Games</a></li>
+                        <li><a href="games.html#dice">Dice Games</a></li>
+                        <li><a href="lobby.html">Multiplayer</a></li>
+                    </ul>
+                </li>
+                <li><a href="otherServices.html">Other Services</a></li>
+                <li><a href="contact.html">Contact</a></li>
+            </ul>
+        </nav>
     </header>
 
     <main>

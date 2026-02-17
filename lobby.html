@@ -285,6 +285,18 @@
             color: var(--accent-green);
         }
 
+        .player-card-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-left: auto;
+        }
+
+        .remove-bot-btn {
+            padding: 4px 10px;
+            font-size: 0.75rem;
+        }
+
         .status-message {
             background: rgba(52, 152, 219, 0.2);
             border-left: 4px solid var(--accent-blue);
@@ -771,6 +783,16 @@
             const playerList = document.getElementById('playerList');
             playerList.innerHTML = '';
 
+            const hostPlayerId = lobbyData.players
+                ? Object.entries(lobbyData.players)
+                    .filter(([_, player]) => !player.isBot)
+                    .sort((a, b) => {
+                        const joinedAtDiff = (a[1].joinedAt || 0) - (b[1].joinedAt || 0);
+                        if (joinedAtDiff !== 0) return joinedAtDiff;
+                        return a[0].localeCompare(b[0]);
+                    })[0]?.[0] || null
+                : null;
+
             if (lobbyData.players && Object.keys(lobbyData.players).length > 0) {
                 Object.entries(lobbyData.players).forEach(([uuid, player]) => {
                     const card = document.createElement('div');
@@ -778,22 +800,51 @@
                     
                     const avatarClass = player.isBot ? 'player-avatar bot' : 'player-avatar';
                     const playerName = player.name || 'Player';
+                    const hostSuffix = uuid === hostPlayerId ? ' (Host)' : '';
                     const initials = playerName.substring(0, 1).toUpperCase();
                     const badge = player.isBot ? '<span class="player-badge bot-badge">BOT</span>' : '<span class="player-badge">PLAYER</span>';
 
                     card.innerHTML = `
                         <div class="${avatarClass}">${initials}</div>
                         <div class="player-info">
-                            <div class="player-name">${playerName}</div>
+                            <div class="player-name">${playerName}${hostSuffix}</div>
                             <div class="player-score">Wins: ${player.totalWins || 0}</div>
                         </div>
-                        ${badge}
+                        <div class="player-card-actions">${badge}</div>
                     `;
+
+                    if (player.isBot) {
+                        const actionContainer = card.querySelector('.player-card-actions');
+                        const removeBtn = document.createElement('button');
+                        removeBtn.className = 'btn-danger btn-small remove-bot-btn';
+                        removeBtn.textContent = 'Remove';
+                        removeBtn.onclick = () => removeBotFromLobby(uuid, playerName);
+                        actionContainer.appendChild(removeBtn);
+                    }
 
                     playerList.appendChild(card);
                 });
             } else {
                 playerList.innerHTML = '<p style="color: var(--text-muted); text-align: center;">No players yet</p>';
+            }
+        }
+
+        async function removeBotFromLobby(botUUID, botName = 'Bot') {
+            if (!botUUID) return;
+
+            const confirmed = confirm(`Remove ${botName} from this lobby?`);
+            if (!confirmed) return;
+
+            try {
+                const removed = await removeBotPlayer(botUUID);
+                if (removed) {
+                    showStatus('joinStatus', `✓ ${botName} removed from lobby`);
+                } else {
+                    showStatus('joinStatus', 'Unable to remove bot', 'error');
+                }
+            } catch (error) {
+                console.error('Error removing bot:', error);
+                showStatus('joinStatus', 'Error removing bot: ' + error.message, 'error');
             }
         }
 

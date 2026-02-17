@@ -341,6 +341,40 @@ async function addBotPlayer(botName = "Bot", lobbyId = null) {
     }
 }
 
+// Remove a bot from the lobby
+async function removeBotPlayer(botUUID, lobbyId = null) {
+    if (!db) {
+        console.error("Firebase not initialized");
+        return false;
+    }
+
+    const id = lobbyId || window.currentLobbyId;
+    if (!id || !botUUID) return false;
+
+    try {
+        const botRef = db.ref(`lobbies/${id}/players/${botUUID}`);
+        const snapshot = await botRef.once('value');
+
+        if (!snapshot.exists()) {
+            console.warn("Bot not found:", botUUID);
+            return false;
+        }
+
+        const playerData = snapshot.val();
+        if (!playerData || !playerData.isBot) {
+            console.warn("Refusing to remove non-bot player:", botUUID);
+            return false;
+        }
+
+        await botRef.remove();
+        console.log("Bot removed:", botUUID);
+        return true;
+    } catch (error) {
+        console.error("Error removing bot:", error);
+        return false;
+    }
+}
+
 // Update player score
 async function updatePlayerScore(score, lobbyId = null) {
     if (!db) {

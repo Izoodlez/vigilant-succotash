@@ -286,6 +286,24 @@ class MultiplayerGame {
         return this.gameState.turnOrder || [];
     }
 
+    // Get host player ID (first real player by join time, UUID tie-break)
+    getHostPlayerId() {
+        const realPlayers = Object.entries(this.players)
+            .filter(([_, player]) => !player.isBot)
+            .sort((a, b) => {
+                const joinedAtDiff = (a[1].joinedAt || 0) - (b[1].joinedAt || 0);
+                if (joinedAtDiff !== 0) return joinedAtDiff;
+                return a[0].localeCompare(b[0]);
+            });
+
+        return realPlayers.length > 0 ? realPlayers[0][0] : null;
+    }
+
+    // Check if specific player is host
+    isHostPlayer(playerId) {
+        return !!playerId && playerId === this.getHostPlayerId();
+    }
+
     // Check if it's a specific player's turn
     isPlayerTurn(playerId) {
         return this.currentTurn === playerId;
@@ -324,13 +342,15 @@ class MultiplayerGame {
 
             const isCurrentTurn = this.currentTurn === playerId;
             const isMe = playerId === this.playerUUID;
+            const isHost = this.isHostPlayer(playerId);
+            const hostText = isHost ? ' (Host)' : '';
 
             const playerCard = document.createElement('div');
             playerCard.className = `player-card ${isCurrentTurn ? 'active-turn' : ''} ${isMe ? 'current-player' : ''}`;
             playerCard.innerHTML = `
                 <div class="player-avatar ${player.isBot ? 'bot' : ''}">${player.isBot ? '🤖' : '👤'}</div>
                 <div class="player-info">
-                    <div class="player-name">${player.name}${isMe ? ' (You)' : ''}</div>
+                    <div class="player-name">${player.name}${hostText}${isMe ? ' (You)' : ''}</div>
                     <div class="player-score">Score: ${playerState.score || 0}</div>
                     ${playerState.ready ? '<div class="ready-badge">✓ Ready</div>' : ''}
                 </div>

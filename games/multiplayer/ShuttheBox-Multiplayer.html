@@ -872,13 +872,27 @@
         }
 
         function getHostPlayerId() {
-            const realPlayers = getRealPlayers().sort();
-            return realPlayers.length ? realPlayers[0] : null;
+            const realPlayers = Object.entries(lobbyPlayers)
+                .filter(([_, player]) => !player.isBot)
+                .sort((a, b) => {
+                    const joinedAtDiff = (a[1].joinedAt || 0) - (b[1].joinedAt || 0);
+                    if (joinedAtDiff !== 0) return joinedAtDiff;
+                    return a[0].localeCompare(b[0]);
+                });
+
+            return realPlayers.length ? realPlayers[0][0] : null;
         }
 
         function isHostClient() {
             const myUUID = getPlayerUUID();
             return myUUID && myUUID === getHostPlayerId();
+        }
+
+        function getDisplayNameWithHost(playerId) {
+            const player = lobbyPlayers[playerId];
+            if (!player) return 'Player';
+            const baseName = player.name || 'Player';
+            return playerId === getHostPlayerId() ? `${baseName} (Host)` : baseName;
         }
 
         function updatePotLabel(realCount) {
@@ -891,7 +905,7 @@
                 label.textContent = 'Your turn!';
             } else {
                 const currentPlayer = lobbyPlayers[currentTurnId];
-                const name = currentPlayer ? currentPlayer.name : 'Player';
+                const name = currentPlayer ? getDisplayNameWithHost(currentTurnId) : 'Player';
                 label.textContent = `${name}'s turn`; 
             }
         }
@@ -938,7 +952,7 @@
 
                 badge.innerHTML = `
                     <div class="avatar">${initial}</div>
-                    <div class="p-name">${player.name}</div>
+                    <div class="p-name">${getDisplayNameWithHost(uuid)}</div>
                     ${scoreDisplay}
                 `;
 
@@ -1351,7 +1365,7 @@
                 .sort((a, b) => a[1] - b[1])
                 .map(([playerId, score], index) => ({
                     playerId,
-                    playerName: lobbyPlayers[playerId].name,
+                    playerName: getDisplayNameWithHost(playerId),
                     score,
                     rank: index + 1,
                     isWinner: playerId === winnerPlayerId

@@ -1122,10 +1122,25 @@
             return { turnPlayers, playerStates, updates };
         }
 
+        function getHostPlayerId() {
+            const realPlayers = Object.entries(lobbyPlayers)
+                .filter(([_, player]) => !player.isBot)
+                .sort((a, b) => {
+                    const joinedAtDiff = (a[1].joinedAt || 0) - (b[1].joinedAt || 0);
+                    if (joinedAtDiff !== 0) return joinedAtDiff;
+                    return a[0].localeCompare(b[0]);
+                });
+
+            return realPlayers.length > 0 ? realPlayers[0][0] : null;
+        }
+
         function getPlayerDisplayName(playerId) {
             if (!playerId) return 'Player';
             const player = lobbyPlayers[playerId];
-            return player ? (player.name || 'Player') : 'Player';
+            if (!player) return 'Player';
+
+            const baseName = player.name || 'Player';
+            return playerId === getHostPlayerId() ? `${baseName} (Host)` : baseName;
         }
 
         function getSpectatorActionText(lastAction) {
@@ -1520,7 +1535,7 @@
                 card.innerHTML = `
                     <div class="player-avatar ${player.isBot ? 'bot' : ''}">${avatar}</div>
                     <div class="player-info">
-                        <div class="player-name">${player.name || 'Unknown'}${youText}${foldedText}</div>
+                        <div class="player-name">${getPlayerDisplayName(playerId)}${youText}${foldedText}</div>
                         <div class="player-score">${isSittingOut ? handText : `Hand: ${handText}`}</div>
                         <div class="player-chips">Chips: ${chips}</div>
                         ${readyBadge}
@@ -2665,16 +2680,7 @@
 
 
         function isHostClient() {
-            // First real (non-bot) player is the host
-            const realPlayers = Object.entries(lobbyPlayers)
-                .filter(([id, player]) => !player.isBot)
-                .sort((a, b) => {
-                    const joinedAtDiff = (a[1].joinedAt || 0) - (b[1].joinedAt || 0);
-                    if (joinedAtDiff !== 0) return joinedAtDiff;
-                    return a[0].localeCompare(b[0]);
-                });
-            
-            return realPlayers.length > 0 && realPlayers[0][0] === playerUUID;
+            return getHostPlayerId() === playerUUID;
         }
 
         function getHandName(score) {

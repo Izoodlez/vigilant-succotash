@@ -579,8 +579,9 @@
         <div class="modal-content">
             <div class="modal-header">🏆 Game Over!</div>
             <div id="scoreboardResults"></div>
+            <div id="scoreboard-ready-status" style="margin: 12px 0; font-weight: bold; color: var(--accent-gold);"></div>
             <div class="modal-actions">
-                <button class="btn btn-primary" onclick="playAgain()">Play Again</button>
+                <button id="scoreboard-ready-btn" class="btn btn-primary" onclick="markNextRoundReady()">Ready Up</button>
                 <button class="btn btn-secondary" onclick="returnToLobbyFromScoreboard()">Return to Lobby</button>
             </div>
         </div>
@@ -634,6 +635,7 @@
         let isBettingCheckInProgress = false;
         let isRollingCheckInProgress = false;
         let isReadyCheckInProgress = false;
+        let isNextRoundCheckInProgress = false;
         let playerTurnComplete = false; // Track if current player completed their turn
 
         // ==============================
@@ -1057,12 +1059,39 @@
             }
             
             if (matchState.currentBet !== undefined) {
+                currentBet = matchState.currentBet;
                 firstPlayerBet = matchState.currentBet;
                 updateBetDisplay();
             }
             
             if (matchState.bettingStarter) {
                 bettingStarter = matchState.bettingStarter;
+            }
+
+            if (matchState.status === 'waiting') {
+                scoreboardShown = false;
+                gameStarted = false;
+                hasFolded = false;
+                bettingStarted = false;
+                bettingStarter = null;
+                playerTurnComplete = false;
+                rollsLeft = 2;
+                currentScore = 0;
+                dice = [0, 0, 0, 0, 0];
+                heldDice = [false, false, false, false, false];
+                renderDice();
+
+                const scoreboardModal = document.getElementById('scoreboardModal');
+                if (scoreboardModal) {
+                    scoreboardModal.classList.remove('active');
+                }
+            }
+
+            if (matchState.status === 'finished') {
+                updateScoreboardReadyStatus();
+                if (isHostClient()) {
+                    checkAllNextRoundReady();
+                }
             }
             
             if (matchState.gameOver && !scoreboardShown) {
@@ -1219,6 +1248,8 @@
                 completedBetting: {},
                 completedRolling: {},
                 playerStates: playerStates,
+                nextRoundReady: {},
+                finishLocked: false,
                 gameOver: false,
                 winner: null,
                 rankings: null
@@ -1749,7 +1780,17 @@
                 const turnOrder = state.turnOrder || [];
                 const completedRolling = state.completedRolling || {};
                 const folded = state.folded || {};
-                
+
+                if (state.gameOver || state.status === 'finished') {
+                    console.log('Game already finished; skipping rolling checks');
+                    return;
+                }
+
+                if (!state.currentTurn) {
+                    console.log('No current turn set for rolling phase');
+                    return;
+                }
+
                 const activePlayers = turnOrder.filter(pid => !folded[pid]);
                 const allDone = activePlayers.every(pid => completedRolling[pid]);
                 
@@ -1759,6 +1800,10 @@
                     console.log('All players rolled! Finishing game...');
                     finishGame();
                 } else {
+                    if (!completedRolling[state.currentTurn]) {
+                        console.log('Current player has not completed rolling yet:', state.currentTurn);
+                        return;
+                    }
                     // Move to next active player
                     const currentIndex = turnOrder.indexOf(state.currentTurn);
                     console.log('Current player index:', currentIndex, 'current player:', lobbyPlayers[state.currentTurn]?.name);
@@ -1938,109 +1983,211 @@
         // GAME END & SCOREBOARD
         // ==============================
         async function finishGame() {
-            const folded = currentMatchState.folded || {};
-            const playerScores = {};
-            let highestScore = -1;
-            
-            // Get hand names for display
-            const handNames = {
-                7: 'Five of a Kind',
-                6: 'Four of a Kind',
-                5: 'Full House',
-                4: 'Straight',
-                3: 'Three of a Kind',
-                2: 'Two Pair',
-                1: 'One Pair',
-                0: 'High Card',
-                '-1': 'FOLDED'
-            };
-            
-            Object.entries(lobbyPlayers).forEach(([playerId, player]) => {
-                const score = folded[playerId] ? -1 : (player.score || 0);
-                playerScores[playerId] = score;
+            if (!lobbyId || !db) return;
+            const lockRef = db.ref(`lobbies/${lobbyId}/gameStates/${GAME_TYPE}/finishLocked`);
+            const lockResult = await lockRef.transaction(current => {
+                if (current) return;
+                return true;
+            });
+
+            if (!lockResult.committed) {
+                console.log('finishGame skipped: finishLocked already set');
+                return;
+            }
+
+            try {
+                const folded = currentMatchState.folded || {};
+                const playersSnapshot = await db.ref(`lobbies/${lobbyId}/players`).once('value');
+                const playersData = playersSnapshot.val() || {};
+                const playerScores = {};
+                let highestScore = -1;
                 
-                if (score > highestScore) {
-                    highestScore = score;
+                // Get hand names for display
+                const handNames = {
+                    7: 'Five of a Kind',
+                    6: 'Four of a Kind',
+                    5: 'Full House',
+                    4: 'Straight',
+                    3: 'Three of a Kind',
+                    2: 'Two Pair',
+                    1: 'One Pair',
+                    0: 'High Card',
+                    '-1': 'FOLDED'
+                };
+                
+                Object.keys(lobbyPlayers).forEach((playerId) => {
+                    const score = folded[playerId] ? -1 : (playersData[playerId]?.score ?? 0);
+                    playerScores[playerId] = score;
+                    
+                    if (score > highestScore) {
+                        highestScore = score;
+                    }
+                });
+                
+                // Find all winners (could be multiple in case of tie)
+                const winnerIds = Object.entries(playerScores)
+                    .filter(([_, score]) => score === highestScore && score >= 0)
+                    .map(([playerId, _]) => playerId);
+                
+                console.log('Winners:', winnerIds, 'Score:', highestScore);
+                
+                // Split pot evenly among winners
+                const potPerWinner = Math.floor(currentPot / winnerIds.length);
+                const potRemainder = currentPot % winnerIds.length;
+                
+                const updates = {};
+                
+                // Award pot to winners and increment wins
+                winnerIds.forEach((winnerId, index) => {
+                    const chipGain = potPerWinner + (index === 0 ? potRemainder : 0);
+                    const baseChips = playersData[winnerId]?.chips ?? playerChips[winnerId] ?? STARTING_CHIPS;
+                    const winnerChips = baseChips + chipGain;
+                    updates[`players/${winnerId}/chips`] = winnerChips;
+                    updates[`players/${winnerId}/totalWins`] = (lobbyPlayers[winnerId].totalWins || 0) + 1;
+                    playerChips[winnerId] = winnerChips;
+                });
+                
+                // Calculate net gain/loss for each player
+                const rankings = Object.entries(playerScores)
+                    .sort((a, b) => {
+                        if (a[1] === b[1]) return 0;
+                        if (a[1] === -1) return 1;
+                        if (b[1] === -1) return -1;
+                        return b[1] - a[1];
+                    })
+                    .map(([playerId, score], index) => {
+                        const betAmount = (currentMatchState.playerBets && currentMatchState.playerBets[playerId]) || 0;
+                        const handName = handNames[score] || 'Unknown';
+                        const isWinner = winnerIds.includes(playerId);
+                        const winnings = isWinner ? Math.floor(currentPot / winnerIds.length) + (winnerIds.indexOf(playerId) === 0 ? currentPot % winnerIds.length : 0) : 0;
+                        const netGain = winnings - betAmount;
+                        
+                        return {
+                            playerId,
+                            playerName: lobbyPlayers[playerId].name,
+                            hand: handName,
+                            score: score === -1 ? 'FOLDED' : score,
+                            winnings: winnings,
+                            betAmount: betAmount,
+                            netGain: netGain,
+                            rank: index + 1,
+                            isWinner: isWinner
+                        };
+                    });
+                
+                // Update chip counts in Firebase
+                const chipUpdates = {};
+                Object.entries(playerChips).forEach(([pid, chips]) => {
+                    chipUpdates[`players/${pid}/chips`] = chips;
+                    chipUpdates[`players/${pid}/totalWins`] = lobbyPlayers[pid].totalWins || 0;
+                });
+                
+                winnerIds.forEach(wid => {
+                    chipUpdates[`players/${wid}/totalWins`] = (lobbyPlayers[wid].totalWins || 0) + 1;
+                });
+                
+                await db.ref(`lobbies/${lobbyId}`).update(chipUpdates);
+
+                const nextRoundReady = {};
+                Object.entries(lobbyPlayers).forEach(([pid, player]) => {
+                    nextRoundReady[pid] = !!player.isBot;
+                });
+                
+                // Update game state
+                await updateGameSpecificState(GAME_TYPE, {
+                    gameOver: true,
+                    winners: winnerIds,
+                    rankings: rankings,
+                    status: 'finished',
+                    nextRoundReady: nextRoundReady
+                }, lobbyId);
+                
+                showScoreboard(rankings, winnerIds[0]);
+            } catch (error) {
+                console.error('finishGame failed:', error);
+                await lockRef.set(false);
+            }
+        }
+
+        async function markNextRoundReady() {
+            if (!lobbyId || !playerUUID) return;
+            if (!currentMatchState || currentMatchState.status !== 'finished') {
+                showToast('Round not finished yet.');
+                return;
+            }
+
+            try {
+                await db.ref(`lobbies/${lobbyId}/gameStates/${GAME_TYPE}/nextRoundReady/${playerUUID}`).set(true);
+                showToast('Ready for next round!');
+
+                if (isHostClient()) {
+                    setTimeout(checkAllNextRoundReady, 300);
+                }
+            } catch (error) {
+                console.error('Error setting next round ready:', error);
+                showToast('Error setting ready');
+            }
+        }
+
+        async function checkAllNextRoundReady() {
+            if (!isHostClient()) return;
+            if (isNextRoundCheckInProgress) return;
+            if (!currentMatchState || currentMatchState.status !== 'finished') return;
+
+            isNextRoundCheckInProgress = true;
+
+            try {
+                const snapshot = await db.ref(`lobbies/${lobbyId}/gameStates/${GAME_TYPE}`).once('value');
+                const state = snapshot.val();
+
+                if (!state || state.status !== 'finished') return;
+
+                const nextRoundReady = state.nextRoundReady || {};
+                const allHumansReady = Object.entries(lobbyPlayers).every(([playerId, player]) => {
+                    if (player.isBot) return true;
+                    return nextRoundReady[playerId] === true;
+                });
+
+                if (allHumansReady) {
+                    await playAgain();
+                }
+            } finally {
+                isNextRoundCheckInProgress = false;
+            }
+        }
+
+        function updateScoreboardReadyStatus() {
+            const statusEl = document.getElementById('scoreboard-ready-status');
+            const readyBtn = document.getElementById('scoreboard-ready-btn');
+
+            if (!statusEl || !currentMatchState || currentMatchState.status !== 'finished') {
+                if (readyBtn) readyBtn.disabled = true;
+                return;
+            }
+
+            const nextRoundReady = currentMatchState.nextRoundReady || {};
+            const notReadyPlayers = [];
+
+            Object.entries(lobbyPlayers).forEach(([playerId, player]) => {
+                if (!player.isBot && !nextRoundReady[playerId]) {
+                    notReadyPlayers.push(player.name || `Player-${playerId.slice(0, 4)}`);
                 }
             });
-            
-            // Find all winners (could be multiple in case of tie)
-            const winnerIds = Object.entries(playerScores)
-                .filter(([_, score]) => score === highestScore && score >= 0)
-                .map(([playerId, _]) => playerId);
-            
-            console.log('Winners:', winnerIds, 'Score:', highestScore);
-            
-            // Split pot evenly among winners
-            const potPerWinner = Math.floor(currentPot / winnerIds.length);
-            const potRemainder = currentPot % winnerIds.length;
-            
-            const updates = {};
-            
-            // Award pot to winners and increment wins
-            winnerIds.forEach((winnerId, index) => {
-                const chipGain = potPerWinner + (index === 0 ? potRemainder : 0);
-                const winnerChips = playerChips[winnerId] + chipGain;
-                updates[`players/${winnerId}/chips`] = winnerChips;
-                updates[`players/${winnerId}/totalWins`] = (lobbyPlayers[winnerId].totalWins || 0) + 1;
-                playerChips[winnerId] = winnerChips;
-            });
-            
-            // Calculate net gain/loss for each player
-            const rankings = Object.entries(playerScores)
-                .sort((a, b) => {
-                    if (a[1] === b[1]) return 0;
-                    if (a[1] === -1) return 1;
-                    if (b[1] === -1) return -1;
-                    return b[1] - a[1];
-                })
-                .map(([playerId, score], index) => {
-                    const betAmount = (currentMatchState.playerBets && currentMatchState.playerBets[playerId]) || 0;
-                    const finalChips = playerChips[playerId];
-                    const netGain = finalChips - STARTING_CHIPS;
-                    const handName = handNames[score] || 'Unknown';
-                    const isWinner = winnerIds.includes(playerId);
-                    
-                    return {
-                        playerId,
-                        playerName: lobbyPlayers[playerId].name,
-                        hand: handName,
-                        score: score === -1 ? 'FOLDED' : score,
-                        winnings: isWinner ? Math.floor(currentPot / winnerIds.length) + (winnerIds.indexOf(playerId) === 0 ? currentPot % winnerIds.length : 0) : 0,
-                        betAmount: betAmount,
-                        netGain: netGain,
-                        rank: index + 1,
-                        isWinner: isWinner
-                    };
-                });
-            
-            // Update chip counts in Firebase
-            const chipUpdates = {};
-            Object.entries(playerChips).forEach(([pid, chips]) => {
-                chipUpdates[`players/${pid}/chips`] = chips;
-                chipUpdates[`players/${pid}/totalWins`] = lobbyPlayers[pid].totalWins || 0;
-            });
-            
-            winnerIds.forEach(wid => {
-                chipUpdates[`players/${wid}/totalWins`] = (lobbyPlayers[wid].totalWins || 0) + 1;
-            });
-            
-            await db.ref(`lobbies/${lobbyId}`).update(chipUpdates);
-            
-            // Update game state
-            await updateGameSpecificState(GAME_TYPE, {
-                gameOver: true,
-                winners: winnerIds,
-                rankings: rankings,
-                status: 'finished'
-            }, lobbyId);
-            
-            showScoreboard(rankings, winnerIds[0]);
+
+            if (notReadyPlayers.length === 0) {
+                statusEl.innerHTML = '<span style="color: #27ae60;">All players ready! Starting next round...</span>';
+            } else {
+                statusEl.innerHTML = `Waiting on: <strong>${notReadyPlayers.join(', ')}</strong>`;
+            }
+
+            const isReady = !!nextRoundReady[playerUUID];
+            if (readyBtn) readyBtn.disabled = isReady;
         }
 
         function showScoreboard(rankings, winnerPlayerId) {
             populateScoreboard(rankings, winnerPlayerId);
             document.getElementById('scoreboardModal').classList.add('active');
+            updateScoreboardReadyStatus();
             scoreboardShown = true;
         }
 
@@ -2105,6 +2252,11 @@
         }
 
         async function playAgain() {
+            if (!isHostClient()) {
+                showToast('Waiting for host to start the next round...');
+                return;
+            }
+
             document.getElementById('scoreboardModal').classList.remove('active');
             
             dice = [0, 0, 0, 0, 0];
@@ -2112,6 +2264,11 @@
             rollsLeft = 2;
             currentScore = 0;
             currentPot = 0;
+            currentBet = 0;
+            firstPlayerBet = 0;
+            bettingStarted = false;
+            bettingStarter = null;
+            playerTurnComplete = false;
             scoreboardShown = false;
             gameStarted = false;
             hasFolded = false;
@@ -2149,6 +2306,8 @@
                 completedBetting: {},
                 completedRolling: {},
                 playerStates: playerStates,
+                nextRoundReady: {},
+                finishLocked: false,
                 gameOver: false,
                 winner: null,
                 rankings: null

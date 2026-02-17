@@ -11,6 +11,7 @@
             --accent-gold: #ffbd2e;
             --accent-blue: #3498db;
             --accent-red: #e74c3c;
+            --accent-green: #27ae60;
             --text-main: #ffffff;
             --text-muted: #aab7b8;
         }
@@ -661,6 +662,14 @@
         let playerTurnComplete = false; // Track if current player completed their turn
         let spectatorView = null;
         let preparedRollingTurnId = null;
+        let botActionTimeout = null;
+        let botActionKey = null;
+        let botActionInProgressKey = null;
+
+        const BOT_BET_DELAY_MS = 1700;
+        const BOT_TURN_START_DELAY_MS = 900;
+        const BOT_ROLL_STEP_DELAY_MS = 1200;
+        const BOT_TURN_END_DELAY_MS = 700;
 
         // ==============================
         // INITIALIZATION
@@ -1125,9 +1134,58 @@
             }
         }
 
+        function delay(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        function clearBotActionSchedule() {
+            if (botActionTimeout) {
+                clearTimeout(botActionTimeout);
+            }
+            botActionTimeout = null;
+            botActionKey = null;
+            botActionInProgressKey = null;
+        }
+
+        function scheduleBotAction(phase, botId, delayMs) {
+            if (!isHostClient() || !botId) return;
+
+            const round = currentMatchState?.round || 0;
+            const key = `${phase}:${round}:${botId}`;
+            if (botActionInProgressKey === key) return;
+            if (botActionKey === key && botActionTimeout) return;
+
+            clearBotActionSchedule();
+            botActionKey = key;
+
+            botActionTimeout = setTimeout(async () => {
+                botActionTimeout = null;
+                const expectedKey = key;
+                if (botActionKey !== expectedKey) return;
+
+                botActionInProgressKey = expectedKey;
+
+                try {
+                    if (phase === 'betting') {
+                        await runBotBet(botId);
+                    } else {
+                        await runBotRoll(botId);
+                    }
+                } finally {
+                    if (botActionInProgressKey === expectedKey) {
+                        botActionInProgressKey = null;
+                    }
+                    if (botActionKey === expectedKey) {
+                        botActionKey = null;
+                    }
+                }
+            }, delayMs);
+        }
+
         function handleTurnLogic() {
             if (!currentMatchState) {
                 console.log('No match state defined');
+                clearBotActionSchedule();
                 return;
             }
             
@@ -1136,12 +1194,14 @@
             // If game is not in an active phase, don't process turn logic
             if (!currentMatchState.status || (currentMatchState.status !== 'betting' && currentMatchState.status !== 'playing')) {
                 console.log('Game not in active phase, status:', currentMatchState.status);
+                clearBotActionSchedule();
                 return;
             }
             
             // If currentTurn is not set but we're in betting/playing, wait and retry
             if (!currentMatchState.currentTurn) {
                 console.log('No current turn defined yet, retrying...');
+                clearBotActionSchedule();
                 setTimeout(handleTurnLogic, 500);
                 return;
             }
@@ -1168,7 +1228,9 @@
                 }
                 // Bot betting
                 if (isHostClient() && currentPlayer && currentPlayer.isBot) {
-                    setTimeout(() => runBotBet(currentMatchState.currentTurn), 2000);
+                    scheduleBotAction('betting', currentMatchState.currentTurn, BOT_BET_DELAY_MS);
+                } else {
+                    clearBotActionSchedule();
                 }
                 disableRollingControls();
                 return;
@@ -1185,8 +1247,10 @@
                         preparedRollingTurnId = currentMatchState.currentTurn;
                         syncSpectatorView('turn_start');
                     }
-                    document.getElementById('roll-btn').disabled = false;
-                    document.getElementById('end-turn-btn').disabled = true;
+                    const canRoll = rollsLeft > 0;
+                    document.getElementById('roll-btn').disabled = !canRoll;
+                    document.getElementById('end-turn-btn').disabled = canRoll;
+                    renderDice();
                     showToast("Your turn to roll!");
                 } else {
                     preparedRollingTurnId = null;
@@ -1200,7 +1264,9 @@
                 }
                 // Bot rolling
                 if (isHostClient() && currentPlayer && currentPlayer.isBot) {
-                    setTimeout(() => runBotRoll(currentMatchState.currentTurn), 2000);
+                    scheduleBotAction('playing', currentMatchState.currentTurn, BOT_BET_DELAY_MS);
+                } else {
+                    clearBotActionSchedule();
                 }
                 updateSpectatingBanner();
                 return;
@@ -1742,9 +1808,16 @@
                     if (activePlayers.length === 1) {
                         // Only one player left, they win
                         await handleSingleWinner(activePlayers[0]);
+                    } else if (activePlayers.length === 0) {
+                        const fallbackWinner = state.bettingStarter || turnOrder[0];
+                        if (fallbackWinner) {
+                            await handleSingleWinner(fallbackWinner);
+                        }
                     } else {
                         // Start rolling phase with the player who bet first
-                        const startPlayer = state.bettingStarter || activePlayers[0];
+                        const startPlayer = (state.bettingStarter && activePlayers.includes(state.bettingStarter))
+                            ? state.bettingStarter
+                            : activePlayers[0];
                         console.log('Starting playing phase with player:', startPlayer);
                         
                         // Update local state immediately
@@ -1774,6 +1847,7 @@
                 } else {
                     // Advance to next player who has not completed betting
                     if (turnOrder.length === 0) return;
+                    const hasOpeningBet = !!state.bettingStarter;
                     const currentIndex = turnOrder.indexOf(state.currentTurn);
                     const startIndex = currentIndex >= 0 ? currentIndex : -1;
                     let nextIndex = startIndex;
@@ -1782,9 +1856,21 @@
                     for (let i = 0; i < turnOrder.length; i++) {
                         nextIndex = (nextIndex + 1) % turnOrder.length;
                         const candidate = turnOrder[nextIndex];
-                        if (!completedBetting[candidate]) {
+                        const isCandidateBot = !!lobbyPlayers[candidate]?.isBot;
+                        if (!completedBetting[candidate] && (hasOpeningBet || !isCandidateBot)) {
                             nextPlayer = candidate;
                             break;
+                        }
+                    }
+
+                    if (!nextPlayer) {
+                        for (let i = 0; i < turnOrder.length; i++) {
+                            nextIndex = (nextIndex + 1) % turnOrder.length;
+                            const candidate = turnOrder[nextIndex];
+                            if (!completedBetting[candidate]) {
+                                nextPlayer = candidate;
+                                break;
+                            }
                         }
                     }
                     
@@ -1810,30 +1896,88 @@
         }
 
         async function handleSingleWinner(winnerId) {
-            // Award pot to winner and increment wins
-            const winnerChips = playerChips[winnerId] + currentPot;
-            
-            await db.ref(`lobbies/${lobbyId}/players/${winnerId}/chips`).set(winnerChips);
-            await db.ref(`lobbies/${lobbyId}/players/${winnerId}/score`).set(0);
-            await db.ref(`lobbies/${lobbyId}/players/${winnerId}/totalWins`).set(
-                (lobbyPlayers[winnerId].totalWins || 0) + 1
-            );
-            
-            const rankings = [{
-                playerId: winnerId,
-                playerName: lobbyPlayers[winnerId].name,
-                score: 0,
-                winnings: currentPot,
-                netGain: currentPot,
-                rank: 1,
-                isWinner: true
-            }];
-            
-            await updateGameSpecificState(GAME_TYPE, {
-                gameOver: true,
-                winner: winnerId,
-                rankings: rankings
+            if (!lobbyId || !db || !winnerId) return;
+
+            const lockRef = db.ref(`lobbies/${lobbyId}/gameStates/${GAME_TYPE}/finishLocked`);
+            const lockResult = await lockRef.transaction(current => {
+                if (current) return;
+                return true;
             });
+
+            if (!lockResult.committed) {
+                console.log('Single-winner finish skipped: finishLocked already set');
+                return;
+            }
+
+            try {
+                const [stateSnap, playersSnap] = await Promise.all([
+                    db.ref(`lobbies/${lobbyId}/gameStates/${GAME_TYPE}`).once('value'),
+                    db.ref(`lobbies/${lobbyId}/players`).once('value')
+                ]);
+
+                const state = stateSnap.val() || {};
+                const playersData = playersSnap.val() || {};
+                const playerBets = state.playerBets || {};
+                const computedPot = Object.values(playerBets)
+                    .reduce((sum, amount) => sum + (Number(amount) || 0), 0);
+                const pot = computedPot > 0 ? computedPot : (Number(state.pot) || 0);
+                const turnOrder = (state.turnOrder && state.turnOrder.length)
+                    ? state.turnOrder
+                    : Object.keys(playersData);
+                const validWinnerId = playersData[winnerId] ? winnerId : turnOrder[0];
+
+                if (!validWinnerId) {
+                    await lockRef.set(false);
+                    return;
+                }
+
+                const baseChips = Number(playersData[validWinnerId]?.chips) || 0;
+                const winnerChips = baseChips + pot;
+                const winnerBet = Number(playerBets[validWinnerId]) || 0;
+
+                const updates = {
+                    [`players/${validWinnerId}/chips`]: winnerChips,
+                    [`players/${validWinnerId}/totalWins`]: (playersData[validWinnerId]?.totalWins || 0) + 1
+                };
+
+                await db.ref(`lobbies/${lobbyId}`).update(updates);
+
+                const rankings = turnOrder.map((playerId, index) => {
+                    const betAmount = Number(playerBets[playerId]) || 0;
+                    const winnings = playerId === validWinnerId ? pot : 0;
+                    return {
+                        playerId,
+                        playerName: lobbyPlayers[playerId]?.name || playersData[playerId]?.name || 'Player',
+                        hand: playerId === validWinnerId ? 'Last Active Player' : 'Folded / Eliminated',
+                        score: playerId === validWinnerId ? 0 : 'FOLDED',
+                        winnings,
+                        betAmount,
+                        netGain: winnings - betAmount,
+                        rank: playerId === validWinnerId ? 1 : Math.max(2, index + 1),
+                        isWinner: playerId === validWinnerId
+                    };
+                });
+
+                const nextRoundReady = {};
+                Object.entries(playersData).forEach(([pid, player]) => {
+                    nextRoundReady[pid] = !!player.isBot;
+                });
+
+                await updateGameSpecificState(GAME_TYPE, {
+                    gameOver: true,
+                    winners: [validWinnerId],
+                    winner: validWinnerId,
+                    rankings,
+                    status: 'finished',
+                    pot,
+                    nextRoundReady,
+                    spectatorView: null,
+                    lastAction: null
+                }, lobbyId);
+            } catch (error) {
+                console.error('handleSingleWinner failed:', error);
+                await lockRef.set(false);
+            }
         }
 
         // ==============================
@@ -1860,18 +2004,28 @@
             const container = document.getElementById('dice-container');
             container.innerHTML = '';
 
+            const isMyActiveRollingTurn = !!currentMatchState
+                && currentMatchState.status === 'playing'
+                && currentMatchState.currentTurn === playerUUID
+                && !hasFolded
+                && !playerTurnComplete;
+
             dice.forEach((value, index) => {
                 const dieEl = document.createElement('div');
-                const isDisabled = rollsLeft === 3 && value === 0;
+                const canToggleHold = isMyActiveRollingTurn && rollsLeft < 2 && rollsLeft > 0 && value !== 0;
+                const isDisabled = !canToggleHold;
                 dieEl.className = `die ${heldDice[index] ? 'held' : ''} ${isDisabled ? 'disabled' : ''}`;
                 dieEl.textContent = value || '?';
-                dieEl.onclick = () => toggleHold(index);
+                dieEl.onclick = () => {
+                    if (!canToggleHold) return;
+                    toggleHold(index);
+                };
                 container.appendChild(dieEl);
             });
         }
 
         function toggleHold(index) {
-            if (rollsLeft === 2 || dice[index] === 0) return;
+            if (rollsLeft >= 2 || rollsLeft <= 0 || dice[index] === 0) return;
             if (currentMatchState.currentTurn !== playerUUID || hasFolded) return;
             
             heldDice[index] = !heldDice[index];
@@ -1995,7 +2149,7 @@
                 
                 if (allDone) {
                     console.log('All players rolled! Finishing game...');
-                    finishGame();
+                    await finishGame();
                 } else {
                     if (!completedRolling[state.currentTurn]) {
                         console.log('Current player has not completed rolling yet:', state.currentTurn);
@@ -2093,8 +2247,29 @@
         // BOT LOGIC
         // ==============================
         async function runBotBet(botId) {
-            const botChips = playerChips[botId] || STARTING_CHIPS;
-            const betAmount = Math.min(firstPlayerBet, botChips);
+            if (!lobbyId || !botId) return;
+
+            const stateSnapshot = await db.ref(`lobbies/${lobbyId}/gameStates/${GAME_TYPE}`).once('value');
+            const state = stateSnapshot.val() || {};
+
+            if (state.status !== 'betting' || state.currentTurn !== botId) return;
+            if ((state.completedBetting || {})[botId]) return;
+
+            const isFirstBet = !state.bettingStarter;
+            if (isFirstBet) {
+                console.log('Bot turn reached before opening human bet; advancing turn.');
+                await checkBettingPhaseComplete();
+                return;
+            }
+
+            const playersSnapshot = await db.ref(`lobbies/${lobbyId}/players`).once('value');
+            const playersData = playersSnapshot.val() || {};
+
+            const botChips = Number(playersData[botId]?.chips);
+            const safeBotChips = Number.isFinite(botChips) ? botChips : (playerChips[botId] || STARTING_CHIPS);
+            const targetBet = Number(state.currentBet) || Number(firstPlayerBet) || 0;
+            const betAmount = Math.min(targetBet, safeBotChips);
+            const statePot = Number(state.pot) || 0;
             
             // Bots always call (no fold)
             if (betAmount <= 0) {
@@ -2105,23 +2280,23 @@
                     [`completedRolling/${botId}`]: true
                 }, lobbyId);
                 showToast(`${lobbyPlayers[botId].name} has no chips!`);
-            } else if (botChips < firstPlayerBet) {
+            } else if (safeBotChips < targetBet) {
                 // Bot goes all-in if short on chips
                 playerChips[botId] = 0;
-                currentPot += botChips;
+                currentPot = statePot + safeBotChips;
                 
                 await db.ref(`lobbies/${lobbyId}/players/${botId}/chips`).set(0);
                 await updateGameSpecificState(GAME_TYPE, {
                     pot: currentPot,
                     [`completedBetting/${botId}`]: true,
-                    [`playerBets/${botId}`]: botChips
+                    [`playerBets/${botId}`]: safeBotChips
                 }, lobbyId);
                 
-                showToast(`${lobbyPlayers[botId].name} went all-in with ${botChips} chips!`);
+                showToast(`${lobbyPlayers[botId].name} went all-in with ${safeBotChips} chips!`);
             } else {
                 // Bot calls the bet
-                playerChips[botId] = botChips - betAmount;
-                currentPot += betAmount;
+                playerChips[botId] = safeBotChips - betAmount;
+                currentPot = statePot + betAmount;
                 
                 await db.ref(`lobbies/${lobbyId}/players/${botId}/chips`).set(playerChips[botId]);
                 await updateGameSpecificState(GAME_TYPE, {
@@ -2137,6 +2312,13 @@
         }
 
         async function runBotRoll(botId) {
+            if (!lobbyId || !botId) return;
+
+            const stateSnapshot = await db.ref(`lobbies/${lobbyId}/gameStates/${GAME_TYPE}`).once('value');
+            const initialState = stateSnapshot.val() || {};
+            if (initialState.status !== 'playing' || initialState.currentTurn !== botId) return;
+            if ((initialState.completedRolling || {})[botId]) return;
+
             let botDice = [0, 0, 0, 0, 0];
             let botHeld = [false, false, false, false, false];
             let botScore = 0;
@@ -2160,8 +2342,16 @@
                     updatedAt: Date.now()
                 }
             }, lobbyId);
+
+            await delay(BOT_TURN_START_DELAY_MS);
             
             for (let roll = 0; roll < 2; roll++) {
+                const rollingStateSnapshot = await db.ref(`lobbies/${lobbyId}/gameStates/${GAME_TYPE}`).once('value');
+                const rollingState = rollingStateSnapshot.val() || {};
+                if (rollingState.status !== 'playing' || rollingState.currentTurn !== botId) {
+                    return;
+                }
+
                 botDice = botDice.map((val, i) => botHeld[i] ? val : Math.floor(Math.random() * 6) + 1);
                 
                 if (roll === 0) {
@@ -2197,7 +2387,7 @@
                     }
                 }, lobbyId);
 
-                await new Promise(resolve => setTimeout(resolve, 700));
+                await delay(BOT_ROLL_STEP_DELAY_MS);
             }
             
             await db.ref(`lobbies/${lobbyId}/players/${botId}/score`).set(botScore);
@@ -2211,6 +2401,8 @@
                     updatedAt: Date.now()
                 }
             }, lobbyId);
+
+            await delay(BOT_TURN_END_DELAY_MS);
             
             showToast(`${lobbyPlayers[botId].name} rolled! Score: ${botScore}`);
             
@@ -2252,9 +2444,21 @@
             }
 
             try {
-                const folded = currentMatchState.folded || {};
-                const playersSnapshot = await db.ref(`lobbies/${lobbyId}/players`).once('value');
+                const [gameStateSnapshot, playersSnapshot] = await Promise.all([
+                    db.ref(`lobbies/${lobbyId}/gameStates/${GAME_TYPE}`).once('value'),
+                    db.ref(`lobbies/${lobbyId}/players`).once('value')
+                ]);
+
+                const state = gameStateSnapshot.val() || {};
+                const folded = state.folded || {};
+                const playerBets = state.playerBets || {};
+                const computedPot = Object.values(playerBets)
+                    .reduce((sum, amount) => sum + (Number(amount) || 0), 0);
+                const statePot = computedPot > 0 ? computedPot : (Number(state.pot) || 0);
                 const playersData = playersSnapshot.val() || {};
+                const turnOrder = (state.turnOrder && state.turnOrder.length)
+                    ? state.turnOrder
+                    : Object.keys(playersData);
                 const playerScores = {};
                 let highestScore = -1;
                 
@@ -2271,7 +2475,7 @@
                     '-1': 'FOLDED'
                 };
                 
-                Object.keys(lobbyPlayers).forEach((playerId) => {
+                turnOrder.forEach((playerId) => {
                     const score = folded[playerId] ? -1 : (playersData[playerId]?.score ?? 0);
                     playerScores[playerId] = score;
                     
@@ -2281,26 +2485,43 @@
                 });
                 
                 // Find all winners (could be multiple in case of tie)
-                const winnerIds = Object.entries(playerScores)
+                let winnerIds = Object.entries(playerScores)
                     .filter(([_, score]) => score === highestScore && score >= 0)
                     .map(([playerId, _]) => playerId);
+
+                if (winnerIds.length === 0 && turnOrder.length > 0) {
+                    const fallbackWinner = state.bettingStarter || turnOrder[0];
+                    winnerIds = fallbackWinner ? [fallbackWinner] : [turnOrder[0]];
+                    highestScore = playerScores[winnerIds[0]] ?? 0;
+                }
+
+                winnerIds.sort((a, b) => turnOrder.indexOf(a) - turnOrder.indexOf(b));
                 
                 console.log('Winners:', winnerIds, 'Score:', highestScore);
                 
                 // Split pot evenly among winners
-                const potPerWinner = Math.floor(currentPot / winnerIds.length);
-                const potRemainder = currentPot % winnerIds.length;
+                const winnerCount = Math.max(1, winnerIds.length);
+                const potPerWinner = Math.floor(statePot / winnerCount);
+                const potRemainder = statePot % winnerCount;
                 
-                const updates = {};
+                const chipUpdates = {};
                 
                 // Award pot to winners and increment wins
                 winnerIds.forEach((winnerId, index) => {
                     const chipGain = potPerWinner + (index === 0 ? potRemainder : 0);
-                    const baseChips = playersData[winnerId]?.chips ?? playerChips[winnerId] ?? STARTING_CHIPS;
+                    const baseChips = Number(playersData[winnerId]?.chips) || 0;
                     const winnerChips = baseChips + chipGain;
-                    updates[`players/${winnerId}/chips`] = winnerChips;
-                    updates[`players/${winnerId}/totalWins`] = (lobbyPlayers[winnerId].totalWins || 0) + 1;
-                    playerChips[winnerId] = winnerChips;
+                    chipUpdates[`players/${winnerId}/chips`] = winnerChips;
+                    chipUpdates[`players/${winnerId}/totalWins`] = (playersData[winnerId]?.totalWins || 0) + 1;
+                });
+
+                turnOrder.forEach((pid) => {
+                    if (!chipUpdates[`players/${pid}/chips`]) {
+                        chipUpdates[`players/${pid}/chips`] = Number(playersData[pid]?.chips) || 0;
+                    }
+                    if (!chipUpdates[`players/${pid}/totalWins`]) {
+                        chipUpdates[`players/${pid}/totalWins`] = playersData[pid]?.totalWins || 0;
+                    }
                 });
                 
                 // Calculate net gain/loss for each player
@@ -2312,15 +2533,15 @@
                         return b[1] - a[1];
                     })
                     .map(([playerId, score], index) => {
-                        const betAmount = (currentMatchState.playerBets && currentMatchState.playerBets[playerId]) || 0;
+                        const betAmount = Number(playerBets[playerId]) || 0;
                         const handName = handNames[score] || 'Unknown';
                         const isWinner = winnerIds.includes(playerId);
-                        const winnings = isWinner ? Math.floor(currentPot / winnerIds.length) + (winnerIds.indexOf(playerId) === 0 ? currentPot % winnerIds.length : 0) : 0;
+                        const winnings = isWinner ? Math.floor(statePot / winnerCount) + (winnerIds.indexOf(playerId) === 0 ? statePot % winnerCount : 0) : 0;
                         const netGain = winnings - betAmount;
                         
                         return {
                             playerId,
-                            playerName: lobbyPlayers[playerId].name,
+                            playerName: lobbyPlayers[playerId]?.name || playersData[playerId]?.name || 'Player',
                             hand: handName,
                             score: score === -1 ? 'FOLDED' : score,
                             winnings: winnings,
@@ -2331,27 +2552,18 @@
                         };
                     });
                 
-                // Update chip counts in Firebase
-                const chipUpdates = {};
-                Object.entries(playerChips).forEach(([pid, chips]) => {
-                    chipUpdates[`players/${pid}/chips`] = chips;
-                    chipUpdates[`players/${pid}/totalWins`] = lobbyPlayers[pid].totalWins || 0;
-                });
-                
-                winnerIds.forEach(wid => {
-                    chipUpdates[`players/${wid}/totalWins`] = (lobbyPlayers[wid].totalWins || 0) + 1;
-                });
-                
                 await db.ref(`lobbies/${lobbyId}`).update(chipUpdates);
+                currentPot = statePot;
 
                 const nextRoundReady = {};
-                Object.entries(lobbyPlayers).forEach(([pid, player]) => {
+                Object.entries(playersData).forEach(([pid, player]) => {
                     nextRoundReady[pid] = !!player.isBot;
                 });
                 
                 // Update game state
                 await updateGameSpecificState(GAME_TYPE, {
                     gameOver: true,
+                    winner: winnerIds[0] || null,
                     winners: winnerIds,
                     rankings: rankings,
                     status: 'finished',

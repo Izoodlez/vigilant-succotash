@@ -322,10 +322,12 @@ async function addBotPlayer(botName = "Bot", lobbyId = null) {
 
     try {
         await db.ref(`lobbies/${id}/players/${botUUID}`).set({
+            id: botUUID,
             uuid: botUUID,
             name: botName,
             joinedAt: Date.now(),
             isBot: true,
+            chips: 1000,
             score: 0,
             totalWins: 0,
             status: "lobby"

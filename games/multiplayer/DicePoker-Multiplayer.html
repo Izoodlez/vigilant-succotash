@@ -527,10 +527,14 @@
                 <div id="call-confirmation" class="call-confirmation" style="display: none;">
                     <div style="font-size: 1rem; color: var(--text-muted); margin-bottom: 10px;">Call amount:</div>
                     <div class="call-amount" id="call-amount-display">0</div>
+                    <div id="min-raise-display" style="font-size: 0.9rem; color: var(--text-muted); margin-top: 8px;"></div>
                 </div>
                 <div style="display: flex; gap: 10px; justify-content: center;">
                     <button id="place-bet-btn" class="btn btn-primary" onclick="placeBet()" style="width: 150px;">
                         💰 Call
+                    </button>
+                    <button id="raise-btn" class="btn btn-secondary" onclick="raiseBet()" style="width: 150px;">
+                        📈 Raise
                     </button>
                     <button id="all-in-btn" class="btn btn-success" onclick="goAllIn()" style="width: 150px;">
                         🔥 All In!
@@ -589,7 +593,7 @@
                     One Pair<br><br>
                     <strong>How to Play:</strong><br>
                     1. First player sets the bet<br>
-                    2. Other players call, go all-in, or fold<br>
+                    2. Other players can call, raise, go all-in, or fold<br>
                     3. Each player rolls twice (hold dice)<br>
                     4. Highest hand wins the pot!
                 </p>
@@ -639,10 +643,13 @@
         // BETTING & CHIPS
         // ==============================
         const STARTING_CHIPS = 1000;
+        const BANKRUPT_SIT_OUT_ROUNDS = 3;
         let playerChips = {};
         let currentBet = 50;
         let currentPot = 0;
         let firstPlayerBet = 50;
+        let lastRaiseSize = 50;
+        let pendingRaiseTarget = 50;
 
         // ==============================
         // GAME STATE
@@ -661,6 +668,7 @@
         let isNextRoundCheckInProgress = false;
         let playerTurnComplete = false; // Track if current player completed their turn
         let spectatorView = null;
+        let lastAppliedSpectatorUpdatedAt = 0;
         let preparedRollingTurnId = null;
         let botActionTimeout = null;
         let botActionKey = null;
@@ -775,12 +783,12 @@
                 // Initialize players from lobby
                 lobbyPlayers = lobbyData.players || {};
                 
-                // Reset chips if player is broke
+                // Initialize chips only if missing; preserve 0 so bankruptcy rules can apply
                 const playerRef = db.ref(`lobbies/${lobbyId}/players/${playerUUID}`);
                 const playerSnapshot = await playerRef.once('value');
                 const playerData = playerSnapshot.val();
                 
-                if (playerData && (playerData.chips === undefined || playerData.chips <= 0)) {
+                if (playerData && playerData.chips === undefined) {
                     await playerRef.update({ chips: STARTING_CHIPS });
                 }
                 
@@ -829,9 +837,11 @@
                     // Initialize player states for any new players
                     Object.keys(lobbyPlayers).forEach(playerId => {
                         if (!currentMatchState.playerStates[playerId]) {
+                            const sittingOut = isPlayerSittingOut(lobbyPlayers[playerId]);
                             currentMatchState.playerStates[playerId] = {
-                                ready: lobbyPlayers[playerId].isBot ? true : false,
-                                score: 0
+                                ready: lobbyPlayers[playerId].isBot ? true : sittingOut,
+                                score: 0,
+                                sittingOut
                             };
                         }
                     });
@@ -844,7 +854,8 @@
                 
                 // Update player chips from Firebase
                 Object.entries(lobbyPlayers).forEach(([pid, player]) => {
-                    playerChips[pid] = player.chips !== undefined ? player.chips : STARTING_CHIPS;
+                    const chips = Number(player?.chips);
+                    playerChips[pid] = Number.isFinite(chips) ? chips : STARTING_CHIPS;
                 });
                 
                 console.log('Players in lobby:', Object.keys(lobbyPlayers).length, lobbyPlayers);
@@ -909,20 +920,15 @@
                 gameInitialized = true;
                 // Force update to waiting if we're the host
                 if (isHostClient()) {
-                    const playerStates = {};
-                    Object.keys(lobbyPlayers).forEach(playerId => {
-                        playerStates[playerId] = {
-                            ready: lobbyPlayers[playerId].isBot ? true : false,
-                            score: 0
-                        };
-                    });
-                    const turnOrder = Object.keys(lobbyPlayers);
-                    updateGameSpecificState(GAME_TYPE, {
-                        status: 'waiting',
-                        turnOrder: turnOrder,
-                        currentTurn: turnOrder[0] || null,
-                        playerStates: playerStates
-                    }, lobbyId).catch(err => console.error('Force update failed:', err));
+                    const { turnPlayers, playerStates, updates } = buildNextRoundSetup(lobbyPlayers);
+                    db.ref(`lobbies/${lobbyId}`).update(updates)
+                        .then(() => updateGameSpecificState(GAME_TYPE, {
+                            status: 'waiting',
+                            turnOrder: turnPlayers,
+                            currentTurn: turnPlayers[0] || null,
+                            playerStates: playerStates
+                        }, lobbyId))
+                        .catch(err => console.error('Force update failed:', err));
                 }
             }
         }
@@ -944,9 +950,16 @@
             // Get list of human players who are not ready
             const playerStates = currentMatchState.playerStates || {};
             const notReadyPlayers = [];
+            const sittingOutPlayers = [];
+            const iAmSittingOut = isPlayerSittingOut(lobbyPlayers[playerUUID]);
             
             Object.entries(lobbyPlayers).forEach(([playerId, player]) => {
                 if (!player.isBot) {
+                    if (isPlayerSittingOut(player)) {
+                        const rounds = getSitOutRoundsRemaining(player);
+                        sittingOutPlayers.push(`${player.name || `Player-${playerId.slice(0, 4)}`} (${rounds} left)`);
+                        return;
+                    }
                     const playerState = playerStates[playerId] || {};
                     if (!playerState.ready) {
                         notReadyPlayers.push(player.name || `Player-${playerId.slice(0, 4)}`);
@@ -956,17 +969,39 @@
             
             // Update waiting display
             if (notReadyPlayers.length === 0) {
-                waitingDisplay.innerHTML = '<span style="color: #27ae60; font-weight: bold;">All players ready! Starting game...</span>';
+                const sitOutSuffix = sittingOutPlayers.length
+                    ? `<br><span style="color: #aab7b8;">Sitting out: ${sittingOutPlayers.join(', ')}</span>`
+                    : '';
+                waitingDisplay.innerHTML = `<span style="color: #27ae60; font-weight: bold;">All active players ready! Starting game...</span>${sitOutSuffix}`;
                 if (readyBtn) readyBtn.disabled = true;
             } else {
                 const isCurrentPlayerReady = (playerStates[playerUUID] || {}).ready;
-                waitingDisplay.innerHTML = `Waiting on: <strong>${notReadyPlayers.join(', ')}</strong>`;
-                if (readyBtn) readyBtn.disabled = isCurrentPlayerReady;
+                const sitOutSuffix = sittingOutPlayers.length
+                    ? `<br><span style="color: #aab7b8;">Sitting out: ${sittingOutPlayers.join(', ')}</span>`
+                    : '';
+                waitingDisplay.innerHTML = `Waiting on: <strong>${notReadyPlayers.join(', ')}</strong>${sitOutSuffix}`;
+                if (readyBtn) readyBtn.disabled = iAmSittingOut || isCurrentPlayerReady;
+            }
+
+            if (readyBtn) {
+                if (iAmSittingOut) {
+                    const rounds = getSitOutRoundsRemaining(lobbyPlayers[playerUUID]);
+                    readyBtn.textContent = `⏸ Sitting Out (${rounds})`;
+                } else {
+                    readyBtn.textContent = '✓ Ready';
+                }
             }
         }
 
         async function markPlayerReady() {
             if (!lobbyId || !playerUUID) return;
+            if (isPlayerSittingOut(lobbyPlayers[playerUUID])) {
+                const rounds = getSitOutRoundsRemaining(lobbyPlayers[playerUUID]);
+                showToast(`You are sitting out this round (${rounds} remaining).`);
+                const readyBtn = document.getElementById('ready-btn');
+                if (readyBtn) readyBtn.disabled = true;
+                return;
+            }
             
             try {
                 // Update player ready status in Firebase
@@ -1003,17 +1038,87 @@
                 // Check if all human players are ready
                 const allHumansReady = Object.entries(lobbyPlayers).every(([playerId, player]) => {
                     if (player.isBot) return true; // Bots are always ready
+                    if (isPlayerSittingOut(player)) return true;
                     const state = playerStates[playerId] || {};
                     return state.ready === true;
                 });
                 
                 if (allHumansReady) {
+                    const activeTurnCount = (currentMatchState.turnOrder || []).length;
+                    if (activeTurnCount === 0) {
+                        console.log('All active players are currently sitting out. Waiting for rejoin rounds.');
+                        return;
+                    }
                     console.log('All humans ready! Transitioning to betting phase...');
                     await startBettingPhase();
                 }
             } finally {
                 isReadyCheckInProgress = false;
             }
+        }
+
+        function getPlayerChipsValue(player) {
+            const chips = Number(player?.chips);
+            return Number.isFinite(chips) ? chips : STARTING_CHIPS;
+        }
+
+        function getSitOutRoundsRemaining(player) {
+            const rounds = Number(player?.sitOutRoundsRemaining);
+            if (!Number.isFinite(rounds) || rounds <= 0) return 0;
+            return Math.floor(rounds);
+        }
+
+        function isPlayerSittingOut(player) {
+            if (!player || player.isBot) return false;
+            return getSitOutRoundsRemaining(player) > 0;
+        }
+
+        function willPlayerSitOutNextRound(playerLike) {
+            if (!playerLike || playerLike.isBot) return false;
+            const sitOutRoundsRemaining = getSitOutRoundsRemaining(playerLike);
+            if (sitOutRoundsRemaining > 0) return true;
+            return getPlayerChipsValue(playerLike) <= 0;
+        }
+
+        function buildNextRoundSetup(playersData) {
+            const turnPlayers = [];
+            const playerStates = {};
+            const updates = {};
+
+            Object.entries(playersData || {}).forEach(([playerId, player]) => {
+                const isBot = !!player?.isBot;
+                let chips = getPlayerChipsValue(player);
+                let sitOutRoundsRemaining = isBot ? 0 : getSitOutRoundsRemaining(player);
+
+                if (!isBot) {
+                    if (sitOutRoundsRemaining > 0) {
+                        sitOutRoundsRemaining -= 1;
+                        if (sitOutRoundsRemaining === 0) {
+                            chips = STARTING_CHIPS;
+                        }
+                    } else if (chips <= 0) {
+                        sitOutRoundsRemaining = BANKRUPT_SIT_OUT_ROUNDS;
+                    }
+                }
+
+                const sittingOut = !isBot && sitOutRoundsRemaining > 0;
+
+                if (!sittingOut) {
+                    turnPlayers.push(playerId);
+                }
+
+                playerStates[playerId] = {
+                    ready: isBot || sittingOut,
+                    score: 0,
+                    sittingOut
+                };
+
+                updates[`players/${playerId}/chips`] = chips;
+                updates[`players/${playerId}/score`] = 0;
+                updates[`players/${playerId}/sitOutRoundsRemaining`] = sitOutRoundsRemaining;
+            });
+
+            return { turnPlayers, playerStates, updates };
         }
 
         function getPlayerDisplayName(playerId) {
@@ -1052,6 +1157,14 @@
             if (!viewState) return;
             if (!Array.isArray(viewState.dice) || viewState.dice.length !== 5) return;
             if (!Array.isArray(viewState.heldDice) || viewState.heldDice.length !== 5) return;
+
+            if (spectatorView && spectatorView.playerId !== viewState.playerId) {
+                lastAppliedSpectatorUpdatedAt = 0;
+            }
+
+            const updatedAt = Number(viewState.updatedAt) || 0;
+            if (updatedAt && updatedAt < lastAppliedSpectatorUpdatedAt) return;
+            if (updatedAt) lastAppliedSpectatorUpdatedAt = updatedAt;
 
             dice = [...viewState.dice];
             heldDice = [...viewState.heldDice];
@@ -1285,6 +1398,10 @@
                 firstPlayerBet = matchState.currentBet;
                 updateBetDisplay();
             }
+
+            if (matchState.lastRaiseSize !== undefined) {
+                lastRaiseSize = matchState.lastRaiseSize;
+            }
             
             if (matchState.bettingStarter) {
                 bettingStarter = matchState.bettingStarter;
@@ -1301,6 +1418,7 @@
                 playerTurnComplete = false;
                 preparedRollingTurnId = null;
                 spectatorView = null;
+                lastAppliedSpectatorUpdatedAt = 0;
                 rollsLeft = 2;
                 currentScore = 0;
                 dice = [0, 0, 0, 0, 0];
@@ -1316,6 +1434,7 @@
             if (matchState.status === 'betting') {
                 preparedRollingTurnId = null;
                 spectatorView = null;
+                lastAppliedSpectatorUpdatedAt = 0;
                 updateSpectatingBanner();
             }
 
@@ -1329,6 +1448,7 @@
 
             if (matchState.status === 'finished') {
                 preparedRollingTurnId = null;
+                lastAppliedSpectatorUpdatedAt = 0;
                 updateSpectatingBanner();
             }
 
@@ -1371,6 +1491,8 @@
                 const playerStates = matchState.playerStates || {};
                 const playerState = playerStates[playerId] || {};
                 const isMe = playerId === playerUUID;
+                const sitOutRounds = getSitOutRoundsRemaining(player);
+                const isSittingOut = !player.isBot && sitOutRounds > 0;
                 
                 const card = document.createElement('div');
                 card.className = `player-card ${isCurrentTurn ? 'active-turn' : ''} ${playerFolded ? 'folded' : ''}`;
@@ -1378,17 +1500,20 @@
                 const avatar = player.isBot ? '🤖' : '👤';
                 const turnIndicator = isCurrentTurn ? '<span class="turn-indicator">◀</span>' : '';
                 const foldedText = playerFolded ? ' (FOLDED)' : '';
-                const chips = player.chips !== undefined ? player.chips : STARTING_CHIPS;
-                const readyBadge = (matchState.status === 'waiting' && playerState.ready && !player.isBot) ? '<span class="ready-badge">✓ Ready</span>' : '';
+                const chips = getPlayerChipsValue(player);
+                const readyBadge = (matchState.status === 'waiting' && playerState.ready && !player.isBot && !isSittingOut) ? '<span class="ready-badge">✓ Ready</span>' : '';
+                const sitOutBadge = isSittingOut ? `<span class="ready-badge" style="background: #e67e22;">⏸ Sit Out (${sitOutRounds})</span>` : '';
                 const youText = isMe ? ' (You)' : '';
+                const handText = isSittingOut ? `Sitting out (${sitOutRounds} round${sitOutRounds === 1 ? '' : 's'} left)` : (getHandName(player.score) || 'Waiting');
                 
                 card.innerHTML = `
                     <div class="player-avatar ${player.isBot ? 'bot' : ''}">${avatar}</div>
                     <div class="player-info">
                         <div class="player-name">${player.name || 'Unknown'}${youText}${foldedText}</div>
-                        <div class="player-score">Hand: ${getHandName(player.score) || 'Waiting'}</div>
+                        <div class="player-score">${isSittingOut ? handText : `Hand: ${handText}`}</div>
                         <div class="player-chips">Chips: ${chips}</div>
                         ${readyBadge}
+                        ${sitOutBadge}
                     </div>
                     ${turnIndicator}
                 `;
@@ -1462,35 +1587,19 @@
             
             console.log('Starting new game round as host');
             hasFolded = false;
-            
-            // Initialize player chips if not set
-            Object.keys(lobbyPlayers).forEach(playerId => {
-                if (playerChips[playerId] === undefined) {
-                    playerChips[playerId] = STARTING_CHIPS;
-                }
-            });
-            
-            // Create turn order (all players including bots)
-            const turnOrder = Object.keys(lobbyPlayers);
-            
-            // Initialize player states for ready-up
-            const playerStates = {};
-            Object.keys(lobbyPlayers).forEach(playerId => {
-                playerStates[playerId] = {
-                    ready: lobbyPlayers[playerId].isBot ? true : false,
-                    score: 0
-                };
-            });
+            const { turnPlayers, playerStates, updates } = buildNextRoundSetup(lobbyPlayers);
             
             // Update match state to waiting (for ready-up) - use game-specific namespace
             const matchStateUpdate = {
                 status: 'waiting',
                 round: (currentMatchState && currentMatchState.round) ? currentMatchState.round + 1 : 1,
-                turnOrder: turnOrder,
-                currentTurn: turnOrder[0] || null,
+                turnOrder: turnPlayers,
+                currentTurn: turnPlayers[0] || null,
                 pot: 0,
                 currentBet: 0,
+                lastRaiseSize: 50,
                 playerBets: {},
+                allIn: {},
                 folded: {},
                 completedBetting: {},
                 completedRolling: {},
@@ -1503,13 +1612,6 @@
                 winner: null,
                 rankings: null
             };
-            
-            // Update all player data and match state in Firebase
-            const updates = {};
-            Object.entries(playerChips).forEach(([pid, chips]) => {
-                updates[`players/${pid}/chips`] = chips;
-                updates[`players/${pid}/score`] = 0;
-            });
             
             await db.ref(`lobbies/${lobbyId}`).update(updates);
             await updateGameSpecificState(GAME_TYPE, matchStateUpdate, lobbyId);
@@ -1533,14 +1635,20 @@
             // Build a stable turn order if missing
             const orderedPlayers = (currentMatchState && currentMatchState.turnOrder && currentMatchState.turnOrder.length)
                 ? currentMatchState.turnOrder
-                : Object.keys(lobbyPlayers);
+                : Object.keys(lobbyPlayers).filter(pid => !isPlayerSittingOut(lobbyPlayers[pid]));
 
-            console.log('Ordered players:', orderedPlayers);
+            const activeOrderedPlayers = orderedPlayers.filter(pid => !isPlayerSittingOut(lobbyPlayers[pid]));
+            if (!activeOrderedPlayers.length) {
+                console.warn('No active players available to start betting phase.');
+                return;
+            }
+
+            console.log('Ordered players:', activeOrderedPlayers);
 
             // Find the first human (non-bot) player in turn order
             let firstHuman = null;
-            if (orderedPlayers && orderedPlayers.length) {
-                for (const pid of orderedPlayers) {
+            if (activeOrderedPlayers && activeOrderedPlayers.length) {
+                for (const pid of activeOrderedPlayers) {
                     console.log('Checking player:', pid, 'isBot:', lobbyPlayers[pid]?.isBot);
                     if (lobbyPlayers[pid] && !lobbyPlayers[pid].isBot) {
                         firstHuman = pid;
@@ -1551,7 +1659,7 @@
             }
             
             // Fallback to first in turnOrder if no humans (shouldn't happen)
-            const initialTurn = firstHuman || (orderedPlayers && orderedPlayers[0]) || null;
+            const initialTurn = firstHuman || (activeOrderedPlayers && activeOrderedPlayers[0]) || null;
             
             if (!initialTurn) {
                 console.error('No initial turn player found!');
@@ -1563,12 +1671,14 @@
             // Transition from waiting to betting with full state reset
             const betPhaseUpdate = {
                 status: 'betting',
-                turnOrder: orderedPlayers,
+                turnOrder: activeOrderedPlayers,
                 currentTurn: initialTurn,
                 pot: 0,
-                currentBet: 50,
-                firstPlayerBet: 50,
+                currentBet: 0,
+                firstPlayerBet: 0,
+                lastRaiseSize: 50,
                 playerBets: {},
+                allIn: {},
                 folded: {},
                 completedBetting: {},
                 completedRolling: {},
@@ -1594,27 +1704,87 @@
         // ==============================
         // BETTING LOGIC
         // ==============================
-        function adjustBet(amount) {
-            // Lock adjustments after first bet
-            if (bettingStarted) return;
-            
-            const myChips = playerChips[playerUUID] || STARTING_CHIPS;
-            const newBet = currentBet + amount;
-            
-            if (newBet > 0 && newBet <= myChips) {
-                currentBet = newBet;
-                updateBetDisplay();
+        const OPENING_BET_MIN = 50;
+
+        function getPlayerContribution(state, playerId) {
+            return Number((state.playerBets || {})[playerId]) || 0;
+        }
+
+        function getCallAmountForPlayer(state, playerId) {
+            const tableBet = Number(state.currentBet) || 0;
+            const playerContribution = getPlayerContribution(state, playerId);
+            return Math.max(0, tableBet - playerContribution);
+        }
+
+        function getMinimumRaiseTarget(state) {
+            const tableBet = Number(state.currentBet) || 0;
+            const minimumRaiseSize = Math.max(Number(state.lastRaiseSize) || OPENING_BET_MIN, 1);
+            return tableBet + minimumRaiseSize;
+        }
+
+        function getMyChipCount() {
+            const chips = Number(playerChips[playerUUID]);
+            return Number.isFinite(chips) ? chips : STARTING_CHIPS;
+        }
+
+        function getMyMaxBetTarget(state) {
+            return getPlayerContribution(state, playerUUID) + getMyChipCount();
+        }
+
+        function clampPendingRaiseTarget(state) {
+            const minimumTarget = getMinimumRaiseTarget(state);
+            const maximumTarget = getMyMaxBetTarget(state);
+            if (maximumTarget < minimumTarget) {
+                pendingRaiseTarget = maximumTarget;
+            } else {
+                pendingRaiseTarget = Math.min(Math.max(pendingRaiseTarget, minimumTarget), maximumTarget);
             }
         }
 
+        function adjustBet(amount) {
+            if (!currentMatchState || currentMatchState.status !== 'betting') return;
+
+            const hasOpeningBet = !!currentMatchState.bettingStarter && (Number(currentMatchState.currentBet) || 0) > 0;
+            if (!hasOpeningBet) {
+                const myChips = getMyChipCount();
+                const newTarget = pendingRaiseTarget + amount;
+                if (newTarget >= OPENING_BET_MIN && newTarget <= myChips) {
+                    pendingRaiseTarget = newTarget;
+                    enableBettingControls();
+                }
+                return;
+            }
+
+            const myMaxTarget = getMyMaxBetTarget(currentMatchState);
+            if (myMaxTarget <= (Number(currentMatchState.currentBet) || 0)) return;
+            const newTarget = pendingRaiseTarget + amount;
+            pendingRaiseTarget = newTarget;
+            clampPendingRaiseTarget(currentMatchState);
+            enableBettingControls();
+        }
+
         function resetBet() {
-            currentBet = 50;
-            updateBetDisplay();
+            if (!currentMatchState || currentMatchState.status !== 'betting') {
+                pendingRaiseTarget = OPENING_BET_MIN;
+                updateBetDisplay();
+                return;
+            }
+
+            const hasOpeningBet = !!currentMatchState.bettingStarter && (Number(currentMatchState.currentBet) || 0) > 0;
+            if (!hasOpeningBet) {
+                pendingRaiseTarget = OPENING_BET_MIN;
+            } else {
+                pendingRaiseTarget = getMinimumRaiseTarget(currentMatchState);
+                clampPendingRaiseTarget(currentMatchState);
+            }
+
+            enableBettingControls();
         }
 
         function updateBetDisplay() {
             document.getElementById('bet-display').textContent = currentBet;
-            document.getElementById('player-chips').textContent = playerChips[playerUUID] || STARTING_CHIPS;
+            const myChips = Number(playerChips[playerUUID]);
+            document.getElementById('player-chips').textContent = Number.isFinite(myChips) ? myChips : STARTING_CHIPS;
         }
 
         function enableBettingControls() {
@@ -1623,26 +1793,53 @@
                 bettingSection.style.display = 'block';
             }
             
-            // Check if this is the first bettor
-            const isFirstBet = !currentMatchState.playerBets || Object.keys(currentMatchState.playerBets || {}).length === 0;
             const bettingControls = document.getElementById('betting-controls');
             const callConfirmation = document.getElementById('call-confirmation');
-            
-            if (isFirstBet) {
-                // First bettor: show adjustment buttons
-                if (bettingControls) bettingControls.style.display = 'flex';
-                if (callConfirmation) callConfirmation.style.display = 'none';
+            const placeBetBtn = document.getElementById('place-bet-btn');
+            const raiseBtn = document.getElementById('raise-btn');
+            const minRaiseDisplay = document.getElementById('min-raise-display');
+
+            const hasOpeningBet = !!currentMatchState.bettingStarter && (Number(currentMatchState.currentBet) || 0) > 0;
+            const callAmount = getCallAmountForPlayer(currentMatchState, playerUUID);
+            const myMaxTarget = getMyMaxBetTarget(currentMatchState);
+            const minimumRaiseTarget = getMinimumRaiseTarget(currentMatchState);
+            const canRaise = hasOpeningBet && myMaxTarget >= minimumRaiseTarget;
+
+            if (!hasOpeningBet) {
+                pendingRaiseTarget = Math.min(Math.max(pendingRaiseTarget, OPENING_BET_MIN), getMyChipCount());
             } else {
-                // Subsequent bettors: show call confirmation
-                if (bettingControls) bettingControls.style.display = 'none';
-                if (callConfirmation) {
-                    callConfirmation.style.display = 'block';
-                    document.getElementById('call-amount-display').textContent = firstPlayerBet;
-                    currentBet = firstPlayerBet;
+                clampPendingRaiseTarget(currentMatchState);
+            }
+
+            if (bettingControls) bettingControls.style.display = (!hasOpeningBet || canRaise) ? 'flex' : 'none';
+
+            if (callConfirmation) {
+                callConfirmation.style.display = 'block';
+                document.getElementById('call-amount-display').textContent = callAmount;
+
+                if (!hasOpeningBet) {
+                    minRaiseDisplay.textContent = `Opening bet: ${pendingRaiseTarget}`;
+                } else if (canRaise) {
+                    minRaiseDisplay.textContent = `Raise to at least ${minimumRaiseTarget} (selected: ${pendingRaiseTarget})`;
+                } else {
+                    minRaiseDisplay.textContent = 'You do not have enough chips for a legal raise target.';
                 }
             }
-            
-            // Always update display
+
+            if (placeBetBtn) {
+                if (!hasOpeningBet) {
+                    placeBetBtn.textContent = '💰 Open Bet';
+                } else if (callAmount > 0) {
+                    placeBetBtn.textContent = '💰 Call';
+                } else {
+                    placeBetBtn.textContent = '✓ Check';
+                }
+            }
+
+            if (raiseBtn) {
+                raiseBtn.disabled = !canRaise;
+            }
+
             updateBetDisplay();
         }
 
@@ -1654,100 +1851,236 @@
         }
 
         async function placeBet() {
-            const myChips = playerChips[playerUUID] || STARTING_CHIPS;
-            const betAmount = Math.min(currentBet, myChips);
-            
-            if (betAmount <= 0) {
-                showToast('Invalid bet amount!');
-                return;
-            }
-            
-            playerChips[playerUUID] = myChips - betAmount;
-            currentPot += betAmount;
-            
-            // Check if this is the FIRST bet
-            const isFirstBet = !currentMatchState.playerBets || Object.keys(currentMatchState.playerBets || {}).length === 0;
-            
-            const updates = {
-                [`players/${playerUUID}/chips`]: playerChips[playerUUID]
-            };
-            
+            if (!lobbyId || !playerUUID) return;
+
+            const stateSnapshot = await db.ref(`lobbies/${lobbyId}/gameStates/${GAME_TYPE}`).once('value');
+            const state = stateSnapshot.val() || {};
+            if (state.status !== 'betting' || state.currentTurn !== playerUUID) return;
+
+            const myChips = getMyChipCount();
+            const tableBet = Number(state.currentBet) || 0;
+            const myContribution = getPlayerContribution(state, playerUUID);
+            const hasOpeningBet = !!state.bettingStarter && tableBet > 0;
+
+            const updates = {};
             const stateUpdates = {
-                pot: currentPot,
-                [`completedBetting/${playerUUID}`]: true,
-                [`playerBets/${playerUUID}`]: betAmount
+                [`completedBetting/${playerUUID}`]: true
             };
-            
-            // If this is the first bet, set standard bet and store the bettor
-            if (isFirstBet) {
-                stateUpdates.currentBet = betAmount;
+
+            if (!hasOpeningBet) {
+                const openingTarget = Math.min(Math.max(pendingRaiseTarget, OPENING_BET_MIN), myChips);
+                if (openingTarget <= 0) {
+                    showToast('Invalid opening bet amount!');
+                    return;
+                }
+
+                const newPot = (Number(state.pot) || 0) + openingTarget;
+                const remainingChips = Math.max(0, myChips - openingTarget);
+
+                playerChips[playerUUID] = remainingChips;
+                currentPot = newPot;
+                currentBet = openingTarget;
+                firstPlayerBet = openingTarget;
+                lastRaiseSize = openingTarget;
+
+                updates[`players/${playerUUID}/chips`] = remainingChips;
+                stateUpdates.pot = newPot;
+                stateUpdates.currentBet = openingTarget;
+                stateUpdates.firstPlayerBet = openingTarget;
+                stateUpdates.lastRaiseSize = openingTarget;
                 stateUpdates.bettingStarter = playerUUID;
-                firstPlayerBet = betAmount;
+                stateUpdates.lastAggressor = playerUUID;
+                stateUpdates[`playerBets/${playerUUID}`] = openingTarget;
+                stateUpdates[`allIn/${playerUUID}`] = remainingChips === 0;
+
                 bettingStarted = true;
                 bettingStarter = playerUUID;
+
+                await db.ref(`lobbies/${lobbyId}`).update(updates);
+                await updateGameSpecificState(GAME_TYPE, stateUpdates, lobbyId);
+                disableBettingControls();
+                showToast(`Opened betting at ${openingTarget} chips!`);
+                checkBettingPhaseComplete();
+                return;
             }
-            
+
+            const callAmount = Math.max(0, tableBet - myContribution);
+            const paidAmount = Math.min(callAmount, myChips);
+            const newContribution = myContribution + paidAmount;
+            const remainingChips = Math.max(0, myChips - paidAmount);
+            const newPot = (Number(state.pot) || 0) + paidAmount;
+
+            playerChips[playerUUID] = remainingChips;
+            currentPot = newPot;
+
+            updates[`players/${playerUUID}/chips`] = remainingChips;
+            stateUpdates.pot = newPot;
+            stateUpdates[`playerBets/${playerUUID}`] = newContribution;
+            stateUpdates[`allIn/${playerUUID}`] = remainingChips === 0;
+
             await db.ref(`lobbies/${lobbyId}`).update(updates);
             await updateGameSpecificState(GAME_TYPE, stateUpdates, lobbyId);
-            
-            // Update local state immediately to reflect bet
-            if (!currentMatchState.completedBetting) currentMatchState.completedBetting = {};
-            if (!currentMatchState.playerBets) currentMatchState.playerBets = {};
-            currentMatchState.completedBetting[playerUUID] = true;
-            currentMatchState.playerBets[playerUUID] = betAmount;
-            currentMatchState.pot = currentPot;
-            
+
             disableBettingControls();
-            showToast(`Bet placed: ${betAmount} chips!`);
-            
+            if (callAmount === 0) {
+                showToast('Check.');
+            } else if (paidAmount < callAmount) {
+                showToast(`Called all-in with ${paidAmount} chips.`);
+            } else {
+                showToast(`Called ${paidAmount} chips!`);
+            }
+
+            checkBettingPhaseComplete();
+        }
+
+        async function raiseBet() {
+            if (!lobbyId || !playerUUID) return;
+
+            const stateSnapshot = await db.ref(`lobbies/${lobbyId}/gameStates/${GAME_TYPE}`).once('value');
+            const state = stateSnapshot.val() || {};
+            if (state.status !== 'betting' || state.currentTurn !== playerUUID) return;
+            if (!state.bettingStarter || (Number(state.currentBet) || 0) <= 0) {
+                showToast('Raise is available after opening bet.');
+                return;
+            }
+
+            const myChips = getMyChipCount();
+            const myContribution = getPlayerContribution(state, playerUUID);
+            const tableBet = Number(state.currentBet) || 0;
+            const minimumRaiseTarget = getMinimumRaiseTarget(state);
+            const maxTarget = myContribution + myChips;
+
+            if (maxTarget < minimumRaiseTarget) {
+                showToast('Not enough chips to make a legal raise.');
+                return;
+            }
+
+            const raiseTarget = Math.min(Math.max(pendingRaiseTarget, minimumRaiseTarget), maxTarget);
+            if (raiseTarget <= tableBet) {
+                showToast('Raise target must be above current bet.');
+                return;
+            }
+
+            const raiseAmount = raiseTarget - myContribution;
+            const raiseSize = raiseTarget - tableBet;
+            const remainingChips = myChips - raiseAmount;
+            const newPot = (Number(state.pot) || 0) + raiseAmount;
+            const updates = {
+                [`players/${playerUUID}/chips`]: remainingChips
+            };
+            const stateUpdates = {
+                pot: newPot,
+                currentBet: raiseTarget,
+                lastRaiseSize: raiseSize,
+                lastAggressor: playerUUID,
+                [`playerBets/${playerUUID}`]: raiseTarget,
+                [`completedBetting/${playerUUID}`]: true,
+                [`allIn/${playerUUID}`]: remainingChips === 0
+            };
+
+            const turnOrder = state.turnOrder || [];
+            const folded = state.folded || {};
+            const allInMap = state.allIn || {};
+            turnOrder.forEach(pid => {
+                if (pid === playerUUID) return;
+                if (folded[pid]) return;
+                if (allInMap[pid]) return;
+                stateUpdates[`completedBetting/${pid}`] = false;
+            });
+
+            playerChips[playerUUID] = remainingChips;
+            currentPot = newPot;
+            currentBet = raiseTarget;
+            firstPlayerBet = state.firstPlayerBet || tableBet;
+            lastRaiseSize = raiseSize;
+
+            await db.ref(`lobbies/${lobbyId}`).update(updates);
+            await updateGameSpecificState(GAME_TYPE, stateUpdates, lobbyId);
+
+            disableBettingControls();
+            showToast(`Raised to ${raiseTarget} chips!`);
+
             checkBettingPhaseComplete();
         }
 
         async function goAllIn() {
-            const myChips = playerChips[playerUUID] || STARTING_CHIPS;
-            
+            if (!lobbyId || !playerUUID) return;
+
+            const stateSnapshot = await db.ref(`lobbies/${lobbyId}/gameStates/${GAME_TYPE}`).once('value');
+            const state = stateSnapshot.val() || {};
+            if (state.status !== 'betting' || state.currentTurn !== playerUUID) return;
+
+            const myChips = getMyChipCount();
             if (myChips <= 0) {
                 showToast('No chips to go all in!');
                 return;
             }
-            
+
+            const myContribution = getPlayerContribution(state, playerUUID);
             const allInAmount = myChips;
-            currentPot += allInAmount;
+            const totalContribution = myContribution + allInAmount;
+            const tableBet = Number(state.currentBet) || 0;
+            const hasOpeningBet = !!state.bettingStarter && tableBet > 0;
+            const minRaiseSize = Math.max(Number(state.lastRaiseSize) || OPENING_BET_MIN, 1);
+            const allInIncrease = Math.max(0, totalContribution - tableBet);
+            const isFullRaise = allInIncrease >= minRaiseSize;
+
+            currentPot = (Number(state.pot) || 0) + allInAmount;
             playerChips[playerUUID] = 0;
-            
-            const isFirstBet = !currentMatchState.playerBets || Object.keys(currentMatchState.playerBets || {}).length === 0;
-            
+
             const updates = {
                 [`players/${playerUUID}/chips`]: 0
             };
-            
+
             const stateUpdates = {
                 pot: currentPot,
                 [`completedBetting/${playerUUID}`]: true,
-                [`playerBets/${playerUUID}`]: allInAmount
+                [`playerBets/${playerUUID}`]: totalContribution,
+                [`allIn/${playerUUID}`]: true
             };
-            
-            if (isFirstBet) {
-                stateUpdates.currentBet = allInAmount;
+
+            if (!hasOpeningBet) {
+                stateUpdates.currentBet = totalContribution;
                 stateUpdates.bettingStarter = playerUUID;
-                firstPlayerBet = allInAmount;
+                stateUpdates.firstPlayerBet = totalContribution;
+                stateUpdates.lastRaiseSize = totalContribution;
+                stateUpdates.lastAggressor = playerUUID;
+                firstPlayerBet = totalContribution;
+                currentBet = totalContribution;
+                lastRaiseSize = totalContribution;
                 bettingStarted = true;
                 bettingStarter = playerUUID;
+            } else if (totalContribution > tableBet && isFullRaise) {
+                stateUpdates.currentBet = totalContribution;
+                stateUpdates.lastRaiseSize = allInIncrease;
+                stateUpdates.lastAggressor = playerUUID;
+
+                const turnOrder = state.turnOrder || [];
+                const folded = state.folded || {};
+                const allInMap = state.allIn || {};
+                turnOrder.forEach(pid => {
+                    if (pid === playerUUID) return;
+                    if (folded[pid]) return;
+                    if (allInMap[pid]) return;
+                    stateUpdates[`completedBetting/${pid}`] = false;
+                });
+
+                currentBet = totalContribution;
+                lastRaiseSize = allInIncrease;
             }
-            
+
             await db.ref(`lobbies/${lobbyId}`).update(updates);
             await updateGameSpecificState(GAME_TYPE, stateUpdates, lobbyId);
-            
-            // Update local state immediately to reflect all-in
-            if (!currentMatchState.completedBetting) currentMatchState.completedBetting = {};
-            if (!currentMatchState.playerBets) currentMatchState.playerBets = {};
-            currentMatchState.completedBetting[playerUUID] = true;
-            currentMatchState.playerBets[playerUUID] = allInAmount;
-            currentMatchState.pot = currentPot;
-            
+
             disableBettingControls();
-            showToast(`All in with ${allInAmount} chips!`);
-            
+            if (hasOpeningBet && totalContribution > tableBet && !isFullRaise) {
+                showToast(`All in with ${allInAmount} chips (short all-in, no reopen).`);
+            } else if (hasOpeningBet && totalContribution > tableBet) {
+                showToast(`All in raise to ${totalContribution} chips!`);
+            } else {
+                showToast(`All in with ${allInAmount} chips!`);
+            }
+
             checkBettingPhaseComplete();
         }
 
@@ -1793,16 +2126,28 @@
                 const turnOrder = state.turnOrder || [];
                 const completedBetting = state.completedBetting || {};
                 const folded = state.folded || {};
-                
-                // Check if all players have completed betting
-                const allDone = turnOrder.every(pid => completedBetting[pid]);
+                const allInMap = state.allIn || {};
+                const hasOpeningBet = !!state.bettingStarter && (Number(state.currentBet) || 0) > 0;
+
+                const activePlayers = turnOrder.filter(pid => !folded[pid]);
+                const playersSnapshot = await db.ref(`lobbies/${lobbyId}/players`).once('value');
+                const playersData = playersSnapshot.val() || {};
+
+                activePlayers.forEach(pid => {
+                    if (allInMap[pid]) return;
+                    const chips = Number(playersData[pid]?.chips);
+                    if (Number.isFinite(chips) && chips <= 0) {
+                        allInMap[pid] = true;
+                    }
+                });
+
+                const actionRequiredPlayers = activePlayers.filter(pid => !allInMap[pid]);
+                const allDone = actionRequiredPlayers.every(pid => completedBetting[pid]);
                 
                 console.log('Checking betting phase: allDone=', allDone, 'completedBetting=', completedBetting);
                 
                 if (allDone) {
                     // Move to rolling phase
-                    const activePlayers = turnOrder.filter(pid => !folded[pid]);
-                    
                     console.log('Betting complete! Active players:', activePlayers);
                     
                     if (activePlayers.length === 1) {
@@ -1847,7 +2192,6 @@
                 } else {
                     // Advance to next player who has not completed betting
                     if (turnOrder.length === 0) return;
-                    const hasOpeningBet = !!state.bettingStarter;
                     const currentIndex = turnOrder.indexOf(state.currentTurn);
                     const startIndex = currentIndex >= 0 ? currentIndex : -1;
                     let nextIndex = startIndex;
@@ -1856,6 +2200,7 @@
                     for (let i = 0; i < turnOrder.length; i++) {
                         nextIndex = (nextIndex + 1) % turnOrder.length;
                         const candidate = turnOrder[nextIndex];
+                        if (folded[candidate] || allInMap[candidate]) continue;
                         const isCandidateBot = !!lobbyPlayers[candidate]?.isBot;
                         if (!completedBetting[candidate] && (hasOpeningBet || !isCandidateBot)) {
                             nextPlayer = candidate;
@@ -1867,6 +2212,7 @@
                         for (let i = 0; i < turnOrder.length; i++) {
                             nextIndex = (nextIndex + 1) % turnOrder.length;
                             const candidate = turnOrder[nextIndex];
+                            if (folded[candidate] || allInMap[candidate]) continue;
                             if (!completedBetting[candidate]) {
                                 nextPlayer = candidate;
                                 break;
@@ -1960,7 +2306,8 @@
 
                 const nextRoundReady = {};
                 Object.entries(playersData).forEach(([pid, player]) => {
-                    nextRoundReady[pid] = !!player.isBot;
+                    const projectedChips = pid === validWinnerId ? winnerChips : getPlayerChipsValue(player);
+                    nextRoundReady[pid] = !!player.isBot || willPlayerSitOutNextRound({ ...player, chips: projectedChips });
                 });
 
                 await updateGameSpecificState(GAME_TYPE, {
@@ -2219,7 +2566,11 @@
             // First real (non-bot) player is the host
             const realPlayers = Object.entries(lobbyPlayers)
                 .filter(([id, player]) => !player.isBot)
-                .sort((a, b) => (a[1].joinedAt || 0) - (b[1].joinedAt || 0));
+                .sort((a, b) => {
+                    const joinedAtDiff = (a[1].joinedAt || 0) - (b[1].joinedAt || 0);
+                    if (joinedAtDiff !== 0) return joinedAtDiff;
+                    return a[0].localeCompare(b[0]);
+                });
             
             return realPlayers.length > 0 && realPlayers[0][0] === playerUUID;
         }
@@ -2266,13 +2617,57 @@
             const playersData = playersSnapshot.val() || {};
 
             const botChips = Number(playersData[botId]?.chips);
-            const safeBotChips = Number.isFinite(botChips) ? botChips : (playerChips[botId] || STARTING_CHIPS);
-            const targetBet = Number(state.currentBet) || Number(firstPlayerBet) || 0;
-            const betAmount = Math.min(targetBet, safeBotChips);
+            const fallbackBotChips = Number(playerChips[botId]);
+            const safeBotChips = Number.isFinite(botChips) ? botChips : (Number.isFinite(fallbackBotChips) ? fallbackBotChips : STARTING_CHIPS);
+            const tableBet = Number(state.currentBet) || Number(firstPlayerBet) || 0;
             const statePot = Number(state.pot) || 0;
+            const botContribution = Number((state.playerBets || {})[botId]) || 0;
+            const callAmount = Math.max(0, tableBet - botContribution);
+            const minimumRaiseSize = Math.max(Number(state.lastRaiseSize) || OPENING_BET_MIN, 1);
+            const minimumRaiseTarget = tableBet + minimumRaiseSize;
+            const botMaxTarget = botContribution + safeBotChips;
+            const canRaise = botMaxTarget >= minimumRaiseTarget;
+            const shouldRaise = canRaise && Math.random() < 0.28;
             
-            // Bots always call (no fold)
-            if (betAmount <= 0) {
+            if (callAmount <= 0 && !shouldRaise) {
+                await updateGameSpecificState(GAME_TYPE, {
+                    [`completedBetting/${botId}`]: true
+                }, lobbyId);
+                showToast(`${lobbyPlayers[botId].name} checks.`);
+            } else if (shouldRaise) {
+                const raiseCap = Math.min(botMaxTarget, minimumRaiseTarget + minimumRaiseSize);
+                const raiseTarget = Math.max(minimumRaiseTarget, raiseCap);
+                const chipsSpent = raiseTarget - botContribution;
+                const chipsLeft = safeBotChips - chipsSpent;
+                const raiseSize = raiseTarget - tableBet;
+
+                playerChips[botId] = chipsLeft;
+                currentPot = statePot + chipsSpent;
+
+                const stateUpdates = {
+                    pot: currentPot,
+                    currentBet: raiseTarget,
+                    lastRaiseSize: raiseSize,
+                    lastAggressor: botId,
+                    [`completedBetting/${botId}`]: true,
+                    [`playerBets/${botId}`]: raiseTarget,
+                    [`allIn/${botId}`]: chipsLeft === 0
+                };
+
+                const turnOrder = state.turnOrder || [];
+                const folded = state.folded || {};
+                const allInMap = state.allIn || {};
+                turnOrder.forEach(pid => {
+                    if (pid === botId) return;
+                    if (folded[pid]) return;
+                    if (allInMap[pid]) return;
+                    stateUpdates[`completedBetting/${pid}`] = false;
+                });
+
+                await db.ref(`lobbies/${lobbyId}/players/${botId}/chips`).set(chipsLeft);
+                await updateGameSpecificState(GAME_TYPE, stateUpdates, lobbyId);
+                showToast(`${lobbyPlayers[botId].name} raised to ${raiseTarget}!`);
+            } else if (safeBotChips <= 0) {
                 // Bot has no chips
                 await updateGameSpecificState(GAME_TYPE, {
                     [`folded/${botId}`]: true,
@@ -2280,7 +2675,7 @@
                     [`completedRolling/${botId}`]: true
                 }, lobbyId);
                 showToast(`${lobbyPlayers[botId].name} has no chips!`);
-            } else if (safeBotChips < targetBet) {
+            } else if (safeBotChips < callAmount) {
                 // Bot goes all-in if short on chips
                 playerChips[botId] = 0;
                 currentPot = statePot + safeBotChips;
@@ -2289,23 +2684,25 @@
                 await updateGameSpecificState(GAME_TYPE, {
                     pot: currentPot,
                     [`completedBetting/${botId}`]: true,
-                    [`playerBets/${botId}`]: safeBotChips
+                    [`playerBets/${botId}`]: botContribution + safeBotChips,
+                    [`allIn/${botId}`]: true
                 }, lobbyId);
                 
                 showToast(`${lobbyPlayers[botId].name} went all-in with ${safeBotChips} chips!`);
             } else {
                 // Bot calls the bet
-                playerChips[botId] = safeBotChips - betAmount;
-                currentPot = statePot + betAmount;
+                playerChips[botId] = safeBotChips - callAmount;
+                currentPot = statePot + callAmount;
                 
                 await db.ref(`lobbies/${lobbyId}/players/${botId}/chips`).set(playerChips[botId]);
                 await updateGameSpecificState(GAME_TYPE, {
                     pot: currentPot,
                     [`completedBetting/${botId}`]: true,
-                    [`playerBets/${botId}`]: betAmount
+                    [`playerBets/${botId}`]: botContribution + callAmount,
+                    [`allIn/${botId}`]: playerChips[botId] === 0
                 }, lobbyId);
                 
-                showToast(`${lobbyPlayers[botId].name} called with ${betAmount} chips!`);
+                showToast(`${lobbyPlayers[botId].name} called with ${callAmount} chips!`);
             }
             
             checkBettingPhaseComplete();
@@ -2516,10 +2913,10 @@
                 });
 
                 turnOrder.forEach((pid) => {
-                    if (!chipUpdates[`players/${pid}/chips`]) {
+                    if (!("players/" + pid + "/chips" in chipUpdates)) {
                         chipUpdates[`players/${pid}/chips`] = Number(playersData[pid]?.chips) || 0;
                     }
-                    if (!chipUpdates[`players/${pid}/totalWins`]) {
+                    if (!("players/" + pid + "/totalWins" in chipUpdates)) {
                         chipUpdates[`players/${pid}/totalWins`] = playersData[pid]?.totalWins || 0;
                     }
                 });
@@ -2557,7 +2954,9 @@
 
                 const nextRoundReady = {};
                 Object.entries(playersData).forEach(([pid, player]) => {
-                    nextRoundReady[pid] = !!player.isBot;
+                    const projectedChips = Number(chipUpdates[`players/${pid}/chips`]);
+                    const effectiveChips = Number.isFinite(projectedChips) ? projectedChips : getPlayerChipsValue(player);
+                    nextRoundReady[pid] = !!player.isBot || willPlayerSitOutNextRound({ ...player, chips: effectiveChips });
                 });
                 
                 // Update game state
@@ -2586,6 +2985,13 @@
                 return;
             }
 
+            if (willPlayerSitOutNextRound(lobbyPlayers[playerUUID])) {
+                showToast('You are sitting out next round.');
+                const readyBtn = document.getElementById('scoreboard-ready-btn');
+                if (readyBtn) readyBtn.disabled = true;
+                return;
+            }
+
             try {
                 await db.ref(`lobbies/${lobbyId}/gameStates/${GAME_TYPE}/nextRoundReady/${playerUUID}`).set(true);
                 showToast('Ready for next round!');
@@ -2607,14 +3013,19 @@
             isNextRoundCheckInProgress = true;
 
             try {
-                const snapshot = await db.ref(`lobbies/${lobbyId}/gameStates/${GAME_TYPE}`).once('value');
-                const state = snapshot.val();
+                const [stateSnapshot, playersSnapshot] = await Promise.all([
+                    db.ref(`lobbies/${lobbyId}/gameStates/${GAME_TYPE}`).once('value'),
+                    db.ref(`lobbies/${lobbyId}/players`).once('value')
+                ]);
+                const state = stateSnapshot.val();
+                const playersData = playersSnapshot.val() || lobbyPlayers;
 
                 if (!state || state.status !== 'finished') return;
 
                 const nextRoundReady = state.nextRoundReady || {};
-                const allHumansReady = Object.entries(lobbyPlayers).every(([playerId, player]) => {
+                const allHumansReady = Object.entries(playersData).every(([playerId, player]) => {
                     if (player.isBot) return true;
+                    if (willPlayerSitOutNextRound(player)) return true;
                     return nextRoundReady[playerId] === true;
                 });
 
@@ -2637,21 +3048,39 @@
 
             const nextRoundReady = currentMatchState.nextRoundReady || {};
             const notReadyPlayers = [];
+            const sitOutNextRoundPlayers = [];
 
             Object.entries(lobbyPlayers).forEach(([playerId, player]) => {
-                if (!player.isBot && !nextRoundReady[playerId]) {
+                if (player.isBot) return;
+                if (willPlayerSitOutNextRound(player)) {
+                    const sitRounds = getSitOutRoundsRemaining(player);
+                    if (sitRounds > 0) {
+                        sitOutNextRoundPlayers.push(`${player.name || `Player-${playerId.slice(0, 4)}`} (${sitRounds} left)`);
+                    } else {
+                        sitOutNextRoundPlayers.push(`${player.name || `Player-${playerId.slice(0, 4)}`} (bankrupt)`);
+                    }
+                    return;
+                }
+                if (!nextRoundReady[playerId]) {
                     notReadyPlayers.push(player.name || `Player-${playerId.slice(0, 4)}`);
                 }
             });
 
             if (notReadyPlayers.length === 0) {
-                statusEl.innerHTML = '<span style="color: #27ae60;">All players ready! Starting next round...</span>';
+                const sitOutSuffix = sitOutNextRoundPlayers.length
+                    ? `<br><span style="color: #aab7b8;">Sitting out next round: ${sitOutNextRoundPlayers.join(', ')}</span>`
+                    : '';
+                statusEl.innerHTML = `<span style="color: #27ae60;">All active players ready! Starting next round...</span>${sitOutSuffix}`;
             } else {
-                statusEl.innerHTML = `Waiting on: <strong>${notReadyPlayers.join(', ')}</strong>`;
+                const sitOutSuffix = sitOutNextRoundPlayers.length
+                    ? `<br><span style="color: #aab7b8;">Sitting out next round: ${sitOutNextRoundPlayers.join(', ')}</span>`
+                    : '';
+                statusEl.innerHTML = `Waiting on: <strong>${notReadyPlayers.join(', ')}</strong>${sitOutSuffix}`;
             }
 
             const isReady = !!nextRoundReady[playerUUID];
-            if (readyBtn) readyBtn.disabled = isReady;
+            const iAmSittingOutNextRound = willPlayerSitOutNextRound(lobbyPlayers[playerUUID]);
+            if (readyBtn) readyBtn.disabled = isReady || iAmSittingOutNextRound;
         }
 
         function showScoreboard(rankings, winnerPlayerId) {
@@ -2736,6 +3165,8 @@
             currentPot = 0;
             currentBet = 0;
             firstPlayerBet = 0;
+            lastRaiseSize = 50;
+            pendingRaiseTarget = 50;
             bettingStarted = false;
             bettingStarter = null;
             playerTurnComplete = false;
@@ -2746,32 +3177,22 @@
             
             renderDice();
             
+            const playersSnapshot = await db.ref(`lobbies/${lobbyId}/players`).once('value');
+            const latestPlayers = playersSnapshot.val() || lobbyPlayers;
+
             // Reset all players - prepare for new round
-            const turnPlayers = Object.keys(lobbyPlayers);
-            const updates = {};
-            
-            // Reset player scores
-            turnPlayers.forEach(playerId => {
-                updates[`players/${playerId}/score`] = 0;
-            });
-            
-            // Reset match state to waiting (ready-up again)
-            const playerStates = {};
-            turnPlayers.forEach(playerId => {
-                playerStates[playerId] = {
-                    ready: lobbyPlayers[playerId].isBot ? true : false,
-                    score: 0
-                };
-            });
+            const { turnPlayers, playerStates, updates } = buildNextRoundSetup(latestPlayers);
             
             const nextMatchState = {
                 status: 'waiting',
                 turnOrder: turnPlayers,
-                currentTurn: turnPlayers[0],
+                currentTurn: turnPlayers[0] || null,
                 round: (currentMatchState.round || 1) + 1,
                 pot: 0,
                 currentBet: 0,
+                lastRaiseSize: 50,
                 playerBets: {},
+                allIn: {},
                 folded: {},
                 completedBetting: {},
                 completedRolling: {},

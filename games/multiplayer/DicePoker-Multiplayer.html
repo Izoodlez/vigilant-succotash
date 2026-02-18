@@ -955,12 +955,13 @@
             const iAmSittingOut = isPlayerSittingOut(lobbyPlayers[playerUUID]);
             
             Object.entries(lobbyPlayers).forEach(([playerId, player]) => {
+                if (isPlayerSittingOut(player)) {
+                    const rounds = getSitOutRoundsRemaining(player);
+                    sittingOutPlayers.push(`${player.name || `Player-${playerId.slice(0, 4)}`} (${rounds} left)`);
+                    return;
+                }
+
                 if (!player.isBot) {
-                    if (isPlayerSittingOut(player)) {
-                        const rounds = getSitOutRoundsRemaining(player);
-                        sittingOutPlayers.push(`${player.name || `Player-${playerId.slice(0, 4)}`} (${rounds} left)`);
-                        return;
-                    }
                     const playerState = playerStates[playerId] || {};
                     if (!playerState.ready) {
                         notReadyPlayers.push(player.name || `Player-${playerId.slice(0, 4)}`);
@@ -1070,12 +1071,12 @@
         }
 
         function isPlayerSittingOut(player) {
-            if (!player || player.isBot) return false;
+            if (!player) return false;
             return getSitOutRoundsRemaining(player) > 0;
         }
 
         function willPlayerSitOutNextRound(playerLike) {
-            if (!playerLike || playerLike.isBot) return false;
+            if (!playerLike) return false;
             const sitOutRoundsRemaining = getSitOutRoundsRemaining(playerLike);
             if (sitOutRoundsRemaining > 0) return true;
             return getPlayerChipsValue(playerLike) <= 0;
@@ -1089,20 +1090,18 @@
             Object.entries(playersData || {}).forEach(([playerId, player]) => {
                 const isBot = !!player?.isBot;
                 let chips = getPlayerChipsValue(player);
-                let sitOutRoundsRemaining = isBot ? 0 : getSitOutRoundsRemaining(player);
+                let sitOutRoundsRemaining = getSitOutRoundsRemaining(player);
 
-                if (!isBot) {
-                    if (sitOutRoundsRemaining > 0) {
-                        sitOutRoundsRemaining -= 1;
-                        if (sitOutRoundsRemaining === 0) {
-                            chips = STARTING_CHIPS;
-                        }
-                    } else if (chips <= 0) {
-                        sitOutRoundsRemaining = BANKRUPT_SIT_OUT_ROUNDS;
+                if (sitOutRoundsRemaining > 0) {
+                    sitOutRoundsRemaining -= 1;
+                    if (sitOutRoundsRemaining === 0) {
+                        chips = STARTING_CHIPS;
                     }
+                } else if (chips <= 0) {
+                    sitOutRoundsRemaining = BANKRUPT_SIT_OUT_ROUNDS;
                 }
 
-                const sittingOut = !isBot && sitOutRoundsRemaining > 0;
+                const sittingOut = sitOutRoundsRemaining > 0;
 
                 if (!sittingOut) {
                     turnPlayers.push(playerId);
@@ -1518,7 +1517,7 @@
                 const playerState = playerStates[playerId] || {};
                 const isMe = playerId === playerUUID;
                 const sitOutRounds = getSitOutRoundsRemaining(player);
-                const isSittingOut = !player.isBot && sitOutRounds > 0;
+                const isSittingOut = sitOutRounds > 0;
                 
                 const card = document.createElement('div');
                 card.className = `player-card ${isCurrentTurn ? 'active-turn' : ''} ${playerFolded ? 'folded' : ''}`;
@@ -3171,7 +3170,6 @@
             const sitOutNextRoundPlayers = [];
 
             Object.entries(lobbyPlayers).forEach(([playerId, player]) => {
-                if (player.isBot) return;
                 if (willPlayerSitOutNextRound(player)) {
                     const sitRounds = getSitOutRoundsRemaining(player);
                     if (sitRounds > 0) {
@@ -3181,6 +3179,7 @@
                     }
                     return;
                 }
+                if (player.isBot) return;
                 if (!nextRoundReady[playerId]) {
                     notReadyPlayers.push(player.name || `Player-${playerId.slice(0, 4)}`);
                 }
